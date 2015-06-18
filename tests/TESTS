@@ -1,0 +1,7 @@
+register_tap
+mult_tap
+divider_tap
+bshift_tap
+arith_tap
+logic_tap
+manip_tap

@@ -1,0 +1,19 @@
+VHDS := $(wildcard vhd/*)
+
+VHDL_TOPS := cpu_pure_tb
+VHDL_LIBS := work
+
+all: $(VHDL_TOPS)
+
+cpu.ghw: cpu_pure_tb
+	./cpu_pure_tb --stop-time=213604ns --wave=cpu.ghw
+
+work-obj93.cf: $(VHDS)
+
+include tools/ghdl.mk
+
+clean:
+	-rm -f *.o
+	-rm -f $(VHDL_TOPS)
+
+.PHONY: all clean

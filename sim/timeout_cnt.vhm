@@ -1,0 +1,51 @@
+library ieee;
+use ieee.std_logic_1164.all;
+use ieee.numeric_std.all;
+
+use work.monitor_pkg.all;
+
+entity timeout_cnt is
+generic ( timeout_cc : integer := 3); -- clock cycles timeout
+
+port(
+    clk : in std_logic;
+    rst : in std_logic;
+    enable : in std_logic;
+    ack : in std_logic;
+    timeout : out timeout_t;
+    fault : out std_logic
+    );
+
+end timeout_cnt;
+
+architecture structure of timeout_cnt is
+
+register variable this : cnt_reg_t reset := CNT_REG_RESET;
+
+begin
+   counter : process(this,enable,ack)
+    register this when clk = '1' and clk'event reset when rst = '1';
+    begin
+    if (enable = '1') then
+       if (ack = '1') then
+       	  this.cnt := 0;
+       else 
+       	    if (this.cnt /= timeout_cc) then
+       	       this.cnt := this.cnt + 1; -- start counting
+       	    end if;
+       end if;
+    else
+	this.cnt := 0;
+    end if;
+
+end process;
+
+--timeout <= '1' when (this.cnt = timeout_cc) else '0';
+
+timeout.cnt <= this'register.cnt;
+
+fault <= '1' when (this'register.cnt = timeout_cc) else '0';
+
+end structure;
+
+
