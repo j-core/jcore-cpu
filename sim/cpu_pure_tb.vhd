@@ -168,7 +168,8 @@ begin
   splice_instr_data_bus(instr_slaves_o(DEV_DDR), instr_slaves_i(DEV_DDR),
                         instrd_slaves_o(DEV_DDR), instrd_slaves_i(DEV_DDR));
 
-  cpu1: cpu port map(clk => clk, rst => rst,
+  cpu1: configuration work.cpu_sim
+            port map(clk => clk, rst => rst,
                      db_o => data_master_o, db_i => data_master_i,
                      inst_o => instr_master_o, inst_i => instr_master_i,
                      debug_o => debug_o, debug_i => debug_i,

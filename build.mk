@@ -1,18 +1,9 @@
-$(VHDLS) += cpu2j0_pkg.vhd
-$(VHDLS) += core/components_pkg.vhd
-$(VHDLS) += core/cpu.vhd
-$(VHDLS) += core/mult_pkg.vhd
-$(VHDLS) += core/mult.vhd
-$(VHDLS) += core/datapath_pkg.vhd
-$(VHDLS) += core/datapath.vhd
-$(VHDLS) += core/register_file.vhd
+include $(dir $(lastword $(MAKEFILE_LIST)))build_core.mk
 
-$(VHDLS) += decode/decode_pkg.vhd
-$(VHDLS) += decode/decode_config.vhd
-$(VHDLS) += decode/decode.vhd
-$(VHDLS) += decode/decode_body.vhd
-$(VHDLS) += decode/decode_table.vhd
+$(VHDLS) += core/cpu_config.vhd
 $(VHDLS) += decode/decode_table_simple.vhd
+$(VHDLS) += decode/decode_table_simple_config.vhd
 $(VHDLS) += decode/decode_table_reverse.vhd
+$(VHDLS) += decode/decode_table_reverse_config.vhd
 $(VHDLS) += decode/decode_table_rom.vhd
-$(VHDLS) += decode/decode_core.vhd
+$(VHDLS) += decode/decode_table_rom_config.vhd

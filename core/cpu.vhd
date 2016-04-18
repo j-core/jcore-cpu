@@ -47,7 +47,7 @@ begin
    event_o.slp  <= slp_o;
    event_o.dbg  <= debug;
 
-   u_decode: configuration work.cpu_decode_reverse
+   u_decode: decode
      port map (clk => clk, rst => rst, slot => slot,
       enter_debug => enter_debug, debug => debug,
       if_dr => if_dr, if_stall => if_stall,

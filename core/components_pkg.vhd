@@ -79,6 +79,7 @@ component register_file is
   generic ( ADDR_WIDTH : integer; NUM_REGS : integer; REG_WIDTH : integer );
   port (
     clk     : in  std_logic;
+    rst     : in  std_logic;
     ce      : in  std_logic;
 
     addr_ra : in  std_logic_vector(ADDR_WIDTH-1 downto 0);
@@ -225,7 +226,8 @@ begin
   -- r = A+not(B)+1-ci = A+not(B)+1-1 = A+not(B) when ci = 1
   --                   = A+not(B)+1              when ci = 0
   -- Xor-ing the ci by is_sub gives the correct calculation.
-  carry_in := (0 => is_sub xor ci, others => '0');
+  carry_in := (others => '0');
+  carry_in(0) := is_sub xor ci;
 
   sum := ('0' & unsigned(xa)) + ('0' & unsigned(b2)) + carry_in;
 

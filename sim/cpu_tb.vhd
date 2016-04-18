@@ -185,7 +185,8 @@ begin
   splice_instr_data_bus(instr_slaves_o(DEV_DDR), instr_slaves_i(DEV_DDR),
                         instrd_slaves_o(DEV_DDR), instrd_slaves_i(DEV_DDR));
 
-  cpu1: cpu port map(clk => clk, rst => rst,
+  cpu1: configuration work.cpu_sim
+            port map(clk => clk, rst => rst,
                      db_o => data_master_o, db_i => data_master_i,
                      inst_o => instr_master_o, inst_i => instr_master_i,
                      debug_o => debug_o, debug_i => debug_i,
@@ -198,7 +199,7 @@ begin
                  ERROR     when event_req_i = "010" else
                  ERROR     when event_req_i = "011" else
                  BREAK     when event_req_i = "100" else
-                 RESET;
+                 RESET_CPU;
   event_i.msk <= '0' when event_req_i = "000" else '1';
   event_i.lvl <= event_info_i(11 downto 8);
   event_i.vec <= event_info_i( 7 downto 0);
@@ -224,22 +225,3 @@ begin
 
 #include "sim_macros.h"
 end behaviour;
-
-
--- failed attempt at using configuration to choose decode_table implementation
---
---configuration cputb_config of cpu_tb is
---  use work.decode_pkg.all;
---  for all: decode_table
---    use entity work.decode_table(simple_logic);
---  end for;
---  --for behaviour
---  --  for all: cpu
---  --    for u_decode: decode
---  --      for table: decode_table
---  --        use entity work.decode_table(simple_logic);
---  --      end for;
---  --    end for;
---  --  end for;
---  --end for;
---end configuration cputb_config;

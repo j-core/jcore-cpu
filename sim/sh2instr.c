@@ -71,6 +71,8 @@ if ((instr & 0xf00f) == 0x2009) {
   return snprintf(str, size, "AND R%hu, R%hu", (uint16_t)((instr >> 4) & 0xF), (uint16_t)((instr >> 8) & 0xF));
 } else if ((instr & 0xf00f) == 0x200c) {
   return snprintf(str, size, "CMP /STR R%hu, R%hu", (uint16_t)((instr >> 4) & 0xF), (uint16_t)((instr >> 8) & 0xF));
+} else if ((instr & 0xf00f) == 0x2003) {
+  return snprintf(str, size, "CAS.L R%hu, R%hu, @R0", (uint16_t)((instr >> 4) & 0xF), (uint16_t)((instr >> 8) & 0xF));
 } else if ((instr & 0xf00f) == 0x2007) {
   return snprintf(str, size, "DIV0S R%hu, R%hu", (uint16_t)((instr >> 4) & 0xF), (uint16_t)((instr >> 8) & 0xF));
 } else if ((instr & 0xf00f) == 0x200f) {
@@ -119,8 +121,6 @@ if ((instr & 0xf00f) == 0x300c) {
   return snprintf(str, size, "CMP /HI R%hu, R%hu", (uint16_t)((instr >> 4) & 0xF), (uint16_t)((instr >> 8) & 0xF));
 } else if ((instr & 0xf00f) == 0x3007) {
   return snprintf(str, size, "CMP /GT R%hu, R%hu", (uint16_t)((instr >> 4) & 0xF), (uint16_t)((instr >> 8) & 0xF));
-} else if ((instr & 0xf00f) == 0x3001) {
-  return snprintf(str, size, "CAS R%hu, R%hu, @R0", (uint16_t)((instr >> 4) & 0xF), (uint16_t)((instr >> 8) & 0xF));
 } else if ((instr & 0xf00f) == 0x3004) {
   return snprintf(str, size, "DIV1 R%hu, R%hu", (uint16_t)((instr >> 4) & 0xF), (uint16_t)((instr >> 8) & 0xF));
 } else if ((instr & 0xf00f) == 0x300d) {

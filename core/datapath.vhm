@@ -159,11 +159,11 @@ begin
 	ybus <= ybus_override.d when ybus_override.en = '1' else ybus_temp;
 
 	gpf_zwd <= pc when pc_ctrl.wrpr = '1' else zbus;
-	u_regfile : entity work.register_file(two_bank)
+	u_regfile : register_file
           generic map (ADDR_WIDTH => 5,
                        NUM_REGS => 21,
                        REG_WIDTH => 32)
-          port map(clk => clk, ce => slot_o, addr_ra => reg.num_x, dout_a => reg_x,
+          port map(clk => clk, rst => rst, ce => slot_o, addr_ra => reg.num_x, dout_a => reg_x,
                    addr_rb => reg.num_y, dout_b => reg_y, dout_0 => reg_0,
                    we_wb => reg.wr_w, w_addr_wb => reg.num_w, din_wb => wbus, 
                    we_ex => reg.wr_z, w_addr_ex => reg.num_z, din_ex => gpf_zwd,

@@ -593,7 +593,8 @@
                                :t (:t-bcc table-inputs)
                                :nt (v-not (:t-bcc table-inputs))}]
            {:if-issue issue-dispatch
-            :dispatch issue-dispatch})
+            :dispatch issue-dispatch
+            :ma-issue issue-dispatch})
          (let [bit-flag {true StdLogic1164/STD_LOGIC_1
                          1 StdLogic1164/STD_LOGIC_1
                          false StdLogic1164/STD_LOGIC_0
@@ -696,7 +697,7 @@
                                        ;; decoder state. TODO:
                                        ;; reexamine if this is
                                        ;; necessary.
-                                       (if-let [op (get system-ops "RESET")]
+                                       (if-let [op (get system-ops "RESET_CPU")]
                                          (inc (:index op))
                                          (throw (IllegalStateException.
                                                  "cannot determine reset instruction address")))))))
@@ -731,7 +732,7 @@
                                               (.getLiterals system-instr-enum))))
                            ;; cpu_event_cmd_t is defined outside the
                            ;; debug vhdl pkg
-                           cpu-event-cmd-t (EnumerationType. "cpu_event_cmd_t" (into-array ["INTERRUPT", "ERROR", "BREAK", "RESET"]))
+                           cpu-event-cmd-t (EnumerationType. "cpu_event_cmd_t" (into-array ["INTERRUPT", "ERROR", "BREAK", "RESET_CPU"]))
                            event-code-array
                            (UnconstrainedArray. "system_event_code_array" event-code-type (into-array [cpu-event-cmd-t]))
                            event-code-constant
@@ -753,7 +754,7 @@
                                                     [["INTERRUPT" "INTERRUPT"]
                                                      ["ERROR" "ERROR"]
                                                      ["BREAK" "BREAK"]
-                                                     ["RESET" "RESET"]]))))]
+                                                     ["RESET_CPU" "RESET_CPU"]]))))]
                        [system-instr-enum
                         array-type
                         (ConstantDeclaration. (into-array [sys-instr-addr-constant]))
@@ -1207,7 +1208,9 @@
                                           1 (enum [:wb :busy])
                                           0)])
                         "Mac busy muxes")
-                       (cond-assign p-sig plane-vector)
+                       (cond-assign p-sig
+                                    0 (v= instr-plane (Constant. "NORMAL_INSTR" std-logic))
+                                    1)
                        compressed-stmts)))
 
         [line-sig-type line-encoder line-decoder]

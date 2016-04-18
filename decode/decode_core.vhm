@@ -145,7 +145,7 @@ begin
     -- Interrupts, (address) errors, reset and break
       when delay_slot = '0' and event_i.en = '1' and (
            ( maskint = '0' and event_i.cmd = INTERRUPT and ( ibit < event_i.lvl or event_i.msk = '1' ) ) or
-           ( event_i.cmd = ERROR or event_i.cmd = RESET or event_i.cmd = BREAK ) ) else
+           ( event_i.cmd = ERROR or event_i.cmd = RESET_CPU or event_i.cmd = BREAK ) ) else
     -- Slot Illegal Instruction
     system_op(SLOT_ILLEGAL)
       when delay_slot = '1' and (illegal_delay_slot or illegal_instr) = '1' else

@@ -159,7 +159,7 @@
              (str  addr " = " (case (:data ma) :y "Y" :z "Z"))
              (str "W = " addr)))
          " " ({8 "byte" 16 "word" 32 "long"} (:size ma)))]
-   (so :ma-issue)
+   (ao :ma-issue (or (:mask ma) true))
    (ao :ma-wr (if (= :write (:op ma)) 1 0))
    (case (:addr ma)
      :x (ao :mem-addr-sel :xbus)

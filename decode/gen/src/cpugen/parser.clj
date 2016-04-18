@@ -41,6 +41,7 @@
    "ILEVEL CAPTURE" :ilevel-capture
    "DELAY JMP" :delay-jump
    "MA OP" :ma-op
+   "MA MASK" :ma-mask
    "MA SIZE" :ma-size
    "MA DATA" :ma-data
    "MA ADDY" :ma-addr
@@ -223,6 +224,7 @@
    :if-addr {"zbus" :z}
    :ma-op {"read" :read
            "write" :write}
+   :ma-mask {"t" :t "nt" :nt}
    :ma-issue {"set" true}
    :ma-size #(Integer/parseInt %)
    :ma-data {"zbus" :z
@@ -362,7 +364,8 @@
         ma-keys-map {:ma-addr :addr
                      :ma-data :data
                      :ma-size :size
-                     :ma-op :op}
+                     :ma-op :op
+                     :ma-mask :mask}
         mac-keys [:mac-stage :mac-op :mac-busy :macin1 :macin2 :mach :macl]
         
         ;; group memory access
@@ -499,14 +502,15 @@
         (if (some #{:rm} (vals slot))
           (when-not (#{:m :nm :md :nmd} fmt)
             (err (str "Opcode format \"" (name fmt) "\" cannot use Rm")))))
-          
+
       (when-let [ma (:ma slot)]
-        (match [ma]
-               [({:op :read}
-                 :only [:op :addr :size])] true
-               [({:op :write}
-                 :only [:op :addr :size :data])] true
-               :else (err "Bad mem access" ma)))
+        (let [ma (dissoc ma :mask)]
+          (match [ma]
+                 [({:op :read}
+                   :only [:op :addr :size])] true
+                 [({:op :write}
+                   :only [:op :addr :size :data])] true
+                 :else (err "Bad mem access" ma))))
 
       (let [m (:m slot) q (:q slot)]
         (if (and (or (= :clear m) (= :clear q))

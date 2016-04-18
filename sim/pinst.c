@@ -18,7 +18,7 @@ main(int argc, char *argv[])
 {
    unsigned short i;
 
-   while(gets(buf)) {
+   while(fgets(buf, sizeof(buf), stdin)) {
      i = atoi(buf);
      op_name(buf, sizeof(buf), i);
 	 printf("%s\n", buf);

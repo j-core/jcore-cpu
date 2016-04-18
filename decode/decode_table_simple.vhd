@@ -1791,8 +1791,8 @@ begin
                 when others =>
 
             end case;
-        elsif std_match(cond, "00011--------0001") then
-            -- CAS Rm, Rn, @R0 [3nm1]
+        elsif std_match(cond, "00010--------0011") then
+            -- CAS.L Rm, Rn, @R0 [2nm3]
             -- When a byte in Rn equals a byte in Rm, 1-> T
             case op.addr(3 downto 0) is
                 when x"0" =>
@@ -1831,12 +1831,6 @@ begin
                     ex.mem_lock <= '1';
 
                 when x"3" =>
-                    ex.mem_lock <= '1';
-                    id.incpc <= '1';
-                    dispatch <= not t_bcc;
-                    id.if_issue <= not t_bcc;
-
-                when x"4" =>
                     -- X = R0
                     ex.xbus_sel <= SEL_REG;
                     ex.regnum_x <= "00000";
@@ -1844,12 +1838,13 @@ begin
                     ex.ybus_sel <= SEL_REG;
                     ex.regnum_y <= "10011";
                     -- MEM[X] = Y long
-                    ex_stall.ma_issue <= '1';
+                    ex_stall.ma_issue <= t_bcc;
                     ex.ma_wr <= '1';
                     ex_stall.mem_addr_sel <= SEL_XBUS;
                     ex_stall.mem_wdata_sel <= SEL_YBUS;
                     ex.mem_size <= LONG;
                     ex.mem_lock <= '1';
+                    id.incpc <= '1';
                     dispatch <= '1';
                     id.if_issue <= '1';
 
@@ -4358,7 +4353,7 @@ begin
 
             end case;
         elsif std_match(cond, "1-----011--------") then
-            -- Reset [-(-011)dd]
+            -- Reset CPU [-(-011)dd]
             -- 
             case op.addr(3 downto 0) is
                 when x"0" =>

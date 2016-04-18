@@ -23,6 +23,7 @@ entity register_file is
     REG_WIDTH : integer);
   port (
     clk     : in  std_logic;
+    rst     : in  std_logic;
     ce      : in  std_logic;
 
     addr_ra : in  std_logic_vector(ADDR_WIDTH-1 downto 0);
@@ -54,6 +55,10 @@ entity register_file is
     addr : addr_t;
   end record;
   type ex_pipeline_t is array(0 to 2) of reg_pipe_t;
+  constant REG_PIPE_RESET : reg_pipe_t := (
+    en   => '0',
+    data => (others => '0'),
+    addr => (others => '0'));
 
   function pipe_matches(pipe : reg_pipe_t; addr : addr_t)
   return boolean is
@@ -124,11 +129,18 @@ begin
   dout_b <= read_with_forwarding(addr_rb, bank_b(to_reg_index(addr_rb)), wb_pipe, ex_pipes);
   dout_0 <= read_with_forwarding(ZERO_ADDR, reg0, wb_pipe, ex_pipes);
   
-  process (clk, ce, wb_pipe, ex_pipes)
+  process (clk, rst, ce, wb_pipe, ex_pipes)
     variable addr : integer;
     variable data : data_t;
   begin
-    if (rising_edge(clk) and ce = '1') then
+    if rst = '1' then
+      addr := 0;
+      data := (others => '0');
+      wr_data_o <= (others => '0');
+      reg0 <= (others => '0');
+      ex_pipes(1) <= REG_PIPE_RESET;
+      ex_pipes(2) <= REG_PIPE_RESET;
+    elsif (rising_edge(clk) and ce = '1') then
       -- the decoder should never schedule a write to a register for both Z and
       -- W bus at the same time
       assert (wb_pipe.en and ex_pipes(2).en) = '0'
@@ -179,11 +191,18 @@ begin
   dout_b <= read_with_forwarding(addr_rb, bank(to_reg_index(addr_rb)), wb_pipe, ex_pipes);
   dout_0 <= read_with_forwarding(ZERO_ADDR, bank(0), wb_pipe, ex_pipes);
 
-  process (clk, ce, wb_pipe, ex_pipes)
+  process (clk, rst, ce, wb_pipe, ex_pipes)
     variable addr : integer;
     variable data : data_t;
   begin
-    if (rising_edge(clk) and ce = '1') then
+    if rst = '1' then
+      addr := 0;
+      data := (others => '0');
+      wr_data_o <= (others => '0');
+      bank <= (others => (others => '0'));
+      ex_pipes(1) <= REG_PIPE_RESET;
+      ex_pipes(2) <= REG_PIPE_RESET;
+    elsif (rising_edge(clk) and ce = '1') then
       -- the decoder should never schedule a write to a register for both Z and
       -- W bus at the same time
       assert (wb_pipe.en and ex_pipes(2).en) = '0'
