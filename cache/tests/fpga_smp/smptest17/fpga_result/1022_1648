@@ -1,0 +1,35 @@
+cache off  ok
+
+# /opt/testsh/smp/smp17
+# drwxr-xr-x  2 root     root        32768  Oct 22 2015  noint
+-rwxr-xr-x  1 root     root         3164  Oct 22 2015  te17c1.bin
+-rwxr-xr-x  1 root     root         2840  Oct 22 2015  te17ih.bin
+-rwxr-xr-x  1 root     root        30472  Oct 22 2015  test17
+# test17
+input PIT-en(1 or 0) & sosu(prime) limit
+1 20000
+test17 (cpu1-pit) results
+time = (process) 3.34 sec, (real-time) 3.36 sec
+prime sum 2262 poll_count 1163216
+PTI routine counter 335       OK
+
+
+cache on
+
+ test17
+input PIT-en(1 or 0) & sosu(prime) limit
+1 200000
+test17 (cpu1-pit) results
+time = (process) 4.64 sec, (real-time) 4.65 sec
+prime sum 17984 poll_count 30838524
+PTI routine counter 464
+
+# # test17
+input PIT-en(1 or 0) & sosu(prime) limit
+0 200000
+test17 (cpu1-pit) results
+time = (process) 4.64 sec, (real-time) 4.65 sec
+prime sum 17984 poll_count 30818916
+PTI routine counter 0
+# 
+

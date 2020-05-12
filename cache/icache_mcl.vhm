@@ -1,0 +1,160 @@
+library ieee;
+use ieee.std_logic_1164.all;
+use ieee.numeric_std.all;
+
+use work.cache_pack.all;
+
+entity icache_mcl is port (
+   clk    : in std_logic; -- mem clock, 200MHz
+   rst    : in std_logic;
+   -- Cache RAM port
+   ry_mcl : out icache_rammcl_i_t;
+   -- DDR memory port
+   ma  : in  mem_i_t;
+   my  : out mem_o_t;
+   -- Cclk Mclk if
+   ctom  : in  ctom_t;
+   mtoc  : out mtoc_t);
+end icache_mcl;
+
+architecture beh of icache_mcl is
+
+  register variable this : icachemcl_reg_t reset := ICACHEMCLK_REG_RESET;
+
+begin
+  p0 : process(ma,ctom,this)
+    register this when clk = '1' and clk'event reset when rst = '1';
+
+  variable nx       : icachemcl_reg_t;
+  variable cw_last  : std_logic;
+  variable ma0_1_0  : std_logic_vector(1 downto 0);
+
+  begin -- begin of process ( )
+
+    if((                         this.ma0(4 downto 2) = b"111") and
+                                          (this.reqw  = b"000")) or
+      (std_logic_vector(unsigned(this.ma0(4 downto 2)) + 1) = this.reqw) then
+      -- caution left 4 bit right 3 bit case
+         cw_last := '1';
+    else cw_last := '0';
+    end if;
+
+    nx.wv := this.wv;
+    if((ctom.fillv = '0') and (this.fillv_del1 = '1')) or
+      ( this.ic_onm = '0') then
+           nx.wv := x"0000";                                -- clear 16 bits
+
+    elsif(this.rfillv_del2 = '1') then
+      if(this.mvbank = '1') then
+           nx.wv(15 downto  8) := x"00";                    -- clear 8 bits
+      else nx.wv( 7 downto  0) := x"00"; end if;            -- clear 8 bits
+
+    elsif(this.ry_en1 = '1') and (this.ic_onm = '1') then
+      if(this.mvbank = '1') then
+           nx.wv (vtoi(this.ry_a1fillc) + 8) := '1';         -- set one bit
+      else nx.wv (vtoi(this.ry_a1fillc) + 0) := '1'; end if; -- set one bit
+    end if;
+
+    if(ctom.fillv = '0') and (this.fillv_del1 = '1') then
+             nx.reqw := ctom.filla(4 downto 2);
+             nx.men  := '1';
+    else     nx.reqw := this.reqw;
+      if(ma.ack_r = '1') and
+        (((this.ic_onm = '1') and (cw_last = '1')) or
+          (this.ic_onm = '0')) then
+             nx.men  := '0';
+      else   nx.men  := this.men;
+      end if;
+    end if;
+
+    if(  this.men = '1') and (ma.ack_r = '1') and
+      (((this.ic_onm = '1') and (cw_last = '1')) or
+        (this.ic_onm = '0')) then  nx.rfillv := '1';
+    else                           nx.rfillv := '0';
+    end if;
+
+    if((ctom.fillv = '0') and (this.fillv_del1 = '1')) or
+       ((this.mav = '1') and (ma.ack_r = '0')) then   nx.mav := '1';
+    else                                            nx.mav := '0';
+    end if;
+
+    if(ctom.fillv = '0') and (this.fillv_del1 = '1') then
+                          nx.ma0     := ctom.filla(27 downto 2)       & b"00";
+                          nx.ma0_1in := ctom.filla(1);
+    elsif(this.men = '1') and (ma.ack_r = '1') and (this.ic_onm = '1') then
+                          nx.ma0     := this.ma0  (27 downto 5)       & 
+              std_logic_vector(unsigned(this.ma0  ( 4 downto 2)) + 1) & b"00";
+                          nx.ma0_1in := this.ma0_1in;
+    else                  nx.ma0     := this.ma0;
+                          nx.ma0_1in := this.ma0_1in;
+    end if;
+
+    nx.cd := this.cd;
+    if(this.men = '1') and (ma.ack_r = '1') and (this.ic_onm = '1') then
+      if(this.ma0(4 downto 2) = this.reqw) then
+        if(this.ma0_1in = '0') then  nx.cd := ma.d;
+        else                         nx.cd(31 downto 16) := ma.d(15 downto 0);
+        end if;
+      elsif(std_logic_vector(unsigned(this.reqw) + 1) =
+            this.ma0(4 downto 2)) and
+           (this.ma0_1in = '1') then nx.cd(15 downto 0) := ma.d(31 downto 16);
+      end if;
+    end if;
+
+    if(ctom.fillv = '0') and (this.fillv_del1 = '1') then
+           nx.mvbank := ctom.filla(0);
+    else   nx.mvbank := this.mvbank; end if;
+
+    ma0_1_0  := this.ma0_1in & '0';
+
+  -- ff substitution
+    -- non nx type (this-this)
+    this.rfillv_del2  := this.rfillv_del1;
+    this.rfillv_del1  := this.rfillv;
+    this.ry_a1fillc   := this.ma0(4 downto 2);
+    this.ry_en1       := this.men and ma.ack_r;
+    -- non nx type (general signal)
+    this.fillv_del1   := ctom.fillv;
+    this.d            := to_cache_idata (ma0_1_0, ma.d);
+    this.ic_onm       := ctom.filla(28);
+    -- nx type
+    this.mav          := nx.mav;
+    this.men          := nx.men;
+    this.reqw         := nx.reqw;
+    this.ma0          := nx.ma0;
+    this.ma0_1in      := nx.ma0_1in;
+    this.wv           := nx.wv ;
+    this.rfillv       := nx.rfillv;
+    this.mvbank       := nx.mvbank;
+    this.cd           := nx.cd;
+  end process;
+
+  -- --------------------------------------------------------------------------
+  -- output signals
+  -- --------------------------------------------------------------------------
+  -- output signal (memory port)
+  my.a  <= this'register.ma0;
+  my.av <= this'register.mav;
+  my.en <= this'register.men;
+  my.wr <=  '0';
+  my.we <= x"0";
+  my.d  <= x"00000000";
+  my.ddrburst <= this'register.mav and this'register.ic_onm;
+
+  -- output signal (cache ram port)
+  ry_mcl.a1  <= this'register.ma0(CACHE_LINE_WIDTH_BITS+CACHE_INDEX_BITS-1 downto 2);
+  ry_mcl.en1 <= this'register.men and ma.ack_r;
+  ry_mcl.wr1 <= this'register.men and ma.ack_r;
+  ry_mcl.d1  <= ma.d;
+
+  -- output signal (mem-clock domain -> cpu-clock domain, 
+  --                domain crossing)
+  mtoc.v <= this'register.wv;
+  mtoc.rfillv         <=
+    this'register.rfillv when this'register.ic_onm = '1' else
+    this'register.rfillv_del1;
+  mtoc.rfillv_advance <= this'register.rfillv;
+  mtoc.rfilld <= this'register.ic_onm & this'register.d;
+  mtoc.cd <= this'register.cd;
+
+end beh;

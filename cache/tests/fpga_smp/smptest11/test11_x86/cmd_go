@@ -1,0 +1,5 @@
+#! /bin/csh -f
+
+echo '300'			>  random2.num
+cat random.num			>> random2.num
+cat random2.num | ./test11_x86

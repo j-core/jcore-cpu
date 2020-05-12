@@ -1,0 +1,35 @@
+t16
+a# test16
+test16 (cpu1-aic read write) results
+i (deci) -1, data (hex) 0
+i (deci) 0, data (hex) fff
+i (deci) 1, data (hex) 0
+i (deci) 2, data (hex) 0
+i (deci) 3, data (hex) 7ff0
+i (deci) 4, data (hex) 7a120
+i (deci) 5, data (hex) 0
+i (deci) 6, data (hex) 14
+i (deci) 7, data (hex) 0
+i (deci) 8, data (hex) 0
+i (deci) 9, data (hex) 7b              << sec
+i (deci) 10, data (hex) 1094dad0       << nanosec
+i (deci) 11, data (hex) 0
+
+i (deci) 12, data (hex) 0               skip write , so copy of 11
+i (deci) 13, data (hex) ffffffff
+i (deci) 14, data (hex) ffffffff
+i (deci) 15, data (hex) 7ff0
+i (deci) 16, data (hex) ffffffff
+i (deci) 17, data (hex) 0
+i (deci) 18, data (hex) 14
+i (deci) 19, data (hex) 0
+i (deci) 20, data (hex) ffffffff
+i (deci) 21, data (hex) ffffffff      << sec
+i (deci) 22, data (hex) 1194dceb      << nanosec
+i (deci) 23, data (hex) 0
+time = (process) 0.03 sec, (real-time) 0.03 sec  << mistake of test16.c, 
+                                                 << corect it
+poll_count 0
+
+
+1194dceb - 1094dad0 = 01000000 = 16,777,216 ns = 16 ms

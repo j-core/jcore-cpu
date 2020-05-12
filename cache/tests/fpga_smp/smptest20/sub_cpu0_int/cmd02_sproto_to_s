@@ -1,0 +1,32 @@
+#! /bin/csh -f
+
+set SRC  = cpu0_int_proto.s
+set DEST = cpu0_int.s
+
+cat $SRC | \
+  sed -n -e '1,/^main:/p'			>  $DEST
+cat $SRC | \
+  sed    -e '1,/^main:/d' | \
+  head -1					>> $DEST
+echo    '/* --	manual add start */'		>> $DEST
+echo    ' 	mov.l	r0,@-r15'		>> $DEST
+echo    ' 	mov.l	r1,@-r15'		>> $DEST
+echo    ' 	mov.l	r2,@-r15'		>> $DEST
+echo    '/* --	manual add end */'		>> $DEST
+cat $SRC | \
+  sed    -e '1,/^main:/d' | \
+  sed    -e '1d' | \
+  sed    -e '/@r15.,r14/,$d'			>> $DEST
+echo    '/* --	manual add start */'		>> $DEST
+echo    '	mov.l	@r15+,r2'		>> $DEST
+echo    '	mov.l	@r15+,r1'		>> $DEST
+echo    '	mov.l	@r15+,r0'		>> $DEST
+echo    '/* --	manual add end */'		>> $DEST
+fgrep   '@r15+,r14' $SRC			>> $DEST
+echo    '/* --	manual add start */'		>> $DEST
+echo    '/* del	rts	<< del */'		>> $DEST
+echo    '	rte	'			>> $DEST
+echo    '/* --	manual add end */'		>> $DEST
+cat $SRC | \
+  sed    -e '1,/rts/d'				>> $DEST
+

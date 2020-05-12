@@ -1,0 +1,166 @@
+smp (two-cpu) fpga C test programs 
+                                                  2016-01-18  Osamu Nishii
+---This README is 166 lines.---
+
+memo: valid and basic spinclock are { 04, 09, 14, 15 }
+memo: all programs operate with cache-on cache-off.
+
+testname     obs=obsolete
+|            |    i test contents
+                  |
+                  +interrupt occurs
+-------------------------------------------------------------------------------
+smptest01 -- obs    (initial phase)
+smptest02 -- obs    (initial phase)
+smptest03 --        coherency data sharing
+smptest04 --        TAS spinclock
+smptest05 -- obs  - IPI (IPI bit 31) ------------------------------------------
+smptest06 -- obs    CAS spinlock (opcode 3nm1, DDR) ---------------------------
+smptest07 -- obs  i IPI (IPI bit 28) (for aic)
+smptest08 --        2-cpu dense access to shared ram
+smptest09 --        TAS spinlock (shared ram)
+smptest10 -- obs    CAS opcode 3nm1, CAS spinlock on shared-RAM ---------------
+-------------------------------------------------------------------------------
+smptest11 --        random number address read write, from cpu0 and cpu1
+smptest12 --        cpu1 char. program , cpu1 pseudo-stop, and restart
+smptest13 --        merge sort by 2cpu
+smptest14 --        CAS spinlock (ddr)
+smptest15 --        CAS spinlock (shram)
+smptest16 --        cpu1, aic reg r/w test (operate with new DDR)
+smptest17 -- obs  i cpu1, aic PIT test (1/100 sec int.)(for aic)
+smptest18 --        cpu0, cpu1, dma three access (busmux busy)(test11 + dma)
+smptest19 --        cpu0, cpu1, dma three access (busmux busy)(test04 + dma)
+smptest20 --      i IPI (IPI bit 28) (for aic2, IPI intr num = 0x61)
+-------------------------------------------------------------------------------
+smptest21 --      i cpu1, aic PIT test (1/100 sec int.)(for aic2, int-num=4n)
+-------------------------------------------------------------------------------
+
+pass/fail judgement -- (generally, programs require each own value 
+                        checkings)
+
+smptest03 --        coherency data sharing
+pass value
+:  sum96 = 294880
+:  sum98 = 313698
+:  sum   = 333300            (=(1/3) x 99 x 100 x 101)
+
+smptest04 --        TAS spinclock
+:  pass value is, array[0, 1, 2] = {N, 2N, N} here N=count
+:  input spin lock cpu0, cpu1 count
+:  [example]
+:  1000000
+:  array[0] = 1000000
+:  array[1] = 2000000
+:  array[2] = 1000000
+
+smptest07 --      i IPI (IPI bit 28)
+:  pass display (five lines) 
+:  exec (by cpu0 main)
+:  IPI occur (by CPU1 int)
+:  occur ipi (by CPU0 int)
+:  IPI occur (by CPU1 int)
+:  occur ipi (by CPU0 int)
+
+smptest08 --        2-cpu dense access to shared ram
+:  pass value is "sum = (1/2) * (x^2 + x) here x = limit"
+:  [example]
+:  input sum limit for cpu0 (1-32767)
+:    (limit for cpu1 is chosen to program)
+:  20000
+:  results
+:  cpu0 limit 20000
+:  cpu0 sum 200010000
+:  cpu1 limit 30000
+:  cpu1 sum 450015000
+
+smptest09 --        TAS spinlock (shared ram)
+:  same as smptest04
+
+smptest11 --        random number address read write, from cpu0 and cpu1
+:  direction : use packed "random.num" and add loop count as the head
+:    example
+:        echo '300'                      >  random2.num
+:        cat random.num                  >> random2.num
+:        test11 < random2.num
+:  expected value for 300 is   a23b04e
+:                              array 0 2e07 197e1 a06b 128b9
+:  expected value for 2000 is  9e2a140
+:                              array 0 1fd46 193f 5112 822e
+:  for general limit value, see x86 result.
+:    test11_x86.c was verified with Mac-OS cc
+:        command: test11_x86  < random2.num
+:                              (random2.num is same format as above)
+
+smptest12 --        cpu1 char. program , cpu1 pseudo-stop, and restart
+:  pass/judge = eye check
+
+smptest13 --        merge sort by 2cpu
+:  expected value is embedded in program.
+:  # cat testh.dat       <<-- testh.dat with loop count as header
+:  100                   <<-- loop count
+:  0
+:  7
+:  :
+:  # test13 < testh.dat
+:  test13 (merge sort, 512 elements) results
+:  sum1 130816 (deci) 1ff00 (hex)
+:  sum2 44608256 (deci) 2a8ab00 (hex)
+:  expected sum1 130816 (deci) 1ff00 (hex)
+:  expected sum2 44608256 (deci) 2a8ab00 (hex)
+:  
+:  0x1ff00 = sum{0, 1, ..., 0x1ff}
+
+smptest14 --        CAS spinlock (ddr)
+:  same as smptest04
+
+smptest15 --        CAS spinlock (shram)
+:  same as smptest04
+
+smptest16 --        cpu1, aic reg r/w test (operate with new DDR)
+:  eye check
+:  # test16 (cpu1-aic read write) results
+:  i (deci) -1, data (hex) 0
+:  i (deci) 0, data (hex) fff
+:  i (deci) 1, data (hex) 0
+:  i (deci) 2, data (hex) 0
+:  i (deci) 3, data (hex) 7ff0
+:  i (deci) 4, data (hex) 7a120
+:  i (deci) 5, data (hex) 0
+:  i (deci) 6, data (hex) 14
+:  i (deci) 7, data (hex) 0
+:  i (deci) 8, data (hex) 0
+:  i (deci) 9, data (hex) a8
+:  i (deci) 10, data (hex) 0
+:  i (deci) 11, data (hex) ffffffff
+:  i (deci) 12, data (hex) ffffffff
+:  i (deci) 13, data (hex) 7ff0
+:  i (deci) 14, data (hex) ffffffff
+:  i (deci) 15, data (hex) 0
+:  i (deci) 16, data (hex) 14
+:  i (deci) 17, data (hex) 0
+:  i (deci) 18, data (hex) ffffffff
+:  i (deci) 19, data (hex) ffffffff
+:  time = (process) 0.00 sec, (real-time) 0.00 sec
+
+smptest17 --      i cpu1, aic PIT test (1/100 sec int.)
+:  jugde check counter valud
+:  PTI-en :give "1"
+:  Example
+:    input PIT-en(1 or 0) & sosu(prime) limit      <<<--- input number
+:    1 200000
+:    test17/test21 (cpu1-pit) results
+:    time = (process) 4.64 sec, (real-time) 4.65 sec
+:    prime sum 17984 poll_count 30838524
+:    PTI routine counter 464            <<<--- this count should be read-time
+:                                       <<<--- real-time[sec] x 100
+
+smptest18 --        cpu0, cpu1, dma three access (busmux busy)(test11 + dma)
+:  dma sum = 0x11f80000,
+:  cpu, same of test11
+
+smptest19 --        cpu0, cpu1, dma three access (busmux busy)(test04 + dma)
+:  dmasum = 0x41e0000,
+:  cpu, same of test04
+
+smptest20 -- see smptest07
+smptest21 -- see smptest17

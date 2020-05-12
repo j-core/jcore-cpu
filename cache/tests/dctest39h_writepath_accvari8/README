@@ -1,0 +1,2 @@
+pass judge method
+  diff cpu01.acc tests/dctest39h_writepath_accvari8/cpu01.acc_ex

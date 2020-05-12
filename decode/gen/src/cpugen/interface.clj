@@ -196,7 +196,9 @@
            [:mac-op "mult_state_t" "NOP" "DMULSL" "DMULUL" "MACL"
                                    "MACW" "MULL" "MULSW" "MULUW"]
            [:cpu-decode-type "cpu_decode_type_t"
-            "SIMPLE" "REVERSE" "MICROCODE"]])
+            "SIMPLE" "DIRECT" "ROM"]
+           [:cpu-data-mux "cpu_data_mux_t" "DBUS" "COPROC"]
+           [:coproc-cmd "coproc_cmd_t" "NOP" "LDS" "STS" "CLDS" "CSTS"]])
 
         enum-types
         (into {} (for [[key name & vals] enums]
@@ -257,7 +259,9 @@
          :buses [[(:xbus-sel enum-types) :x-sel]
                  [(:ybus-sel enum-types) :y-sel]
                  [(:zbus-sel enum-types) :z-sel]
-                 [(std-logic-vector 32) :imm-val]]}
+                 [(std-logic-vector 32) :imm-val]]
+         :coproc [[(:cpu-data-mux enum-types) :cpu-data-mux]
+                  [(:coproc-cmd enum-types) :coproc-cmd]]}
         [control-records control-elements]
         (letfn [(add-recs [recs elems rec-name fields sig prefix]
                   (let [record (RecordType. (str (vhdl-name rec-name) "_ctrl_t"))
@@ -324,7 +328,8 @@
           [(:logic-func enum-types) :logic-func]
           [(:logic-sr-func enum-types) :logic-sr-func]
           [std-logic :mac-busy :ma-wr :mem-lock]
-          [(:mem-size enum-types) :mem-size]]
+          [(:mem-size enum-types) :mem-size]
+          [(:coproc-cmd enum-types) :coproc-cmd]]
          :ex-stall
          [[std-logic
            :wrpc-z
@@ -353,7 +358,8 @@
            [:wrreg-w :wrsr-w]]
           [(:macsel1 enum-types) :macsel1]
           [(:macsel2 enum-types) :macsel2]
-          [(:mac-op enum-types) :mulcom2]]}]
+          [(:mac-op enum-types) :mulcom2]
+          [(:cpu-data-mux enum-types) :cpu-data-mux]]}]
 
     {:enum-types enum-types
      :enum-maps enum-maps
@@ -390,6 +396,8 @@
                       [(:instr control-records) :instr]
                       [(:pc control-records) :pc]
                       [(:buses control-records) :buses]
+                      [(:coproc control-records) :coproc]
+                      [(std-logic-vector 8) :copreg]
                       [std-logic
                        :slp
                        :event-ack
@@ -403,5 +411,7 @@
        ;; need xbus-sel and ybus-sel to not be SEL_REG when not set so
        ;; to avoid false positive register conflicts causing stalls       
        ;;:xbus-sel :ybus-sel
-       :regnum-w :regnum-x :regnum-y :regnum-z}
+       :regnum-w :regnum-x :regnum-y :regnum-z
+       ;;:cpu-data-mux :coproc-cmd
+       }
      :multi-stage-signals (find-multi-state-signals pipelines)}))

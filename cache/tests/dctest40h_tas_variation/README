@@ -1,0 +1,14 @@
+basic pattern = cache on,   ddr 1 wait
+
+sim time = 4000ns
+
+pass judge method
+(1) cpu r/w value (command ./cmd_go_dhry)
+verifying
+      40 cpu0.acc access
+      20 bus.acc access
+cpu r/w verify ok
+bus-cpu store verify ok
+bus-W snoop-W match ok
+
+(2) lock signal output -- wave check

@@ -1,0 +1,3 @@
+#! /bin/csh -f
+
+sh2-uclinux-gcc -Wall -Werror -Wno-error=unused-value -c get_vbr.s

@@ -1,0 +1,84 @@
+#! /bin/csh -f
+
+/bin/rm cpu.acc bus.acc > & /dev/null
+
+make dcache_tb.ghw
+
+echo  'verifying'
+wc -l cpu.acc | tr '\012' ' '
+echo 'access'
+wc -l bus.acc | tr '\012' ' '
+echo 'access'
+
+# cat cpu.acc | \
+#   cut -c2-8 > tmp.1
+
+# cat cpu.acc | \
+#   cut -c11-17 > tmp.2
+
+cat cpu.acc | \
+  grep '1 *$' | \
+  awk '{print $1, $2}' | \
+  sed -e 's/^.//' > tmp.5
+cat tmp.5 | \
+  sed -e '$d' > tmp.6
+
+cat  dcache_tb.vhd | \
+  grep '^  acc_vect' | \
+  cut -c23-39 | \
+  sed -e 's/^........./& /' \
+      -e 's/^../& 0/' \
+      -e 's/^./& /' | \
+  awk '{print $1, $3, $4}' | \
+  sed -e '/^0........[159D]/s/^.........../&%/' \
+      -e                   's/%../mm/' \
+      -e '/^0........[159D]/s/^.............../&%/' \
+      -e '/^0........[26AE]/s/^.........../&%/' \
+      -e                   's/%..../mmmm/' \
+      -e '/^0........[37BF]/s/^.........../&%/' \
+      -e                   's/%....../mmmmmm/' | \
+  awk '{print $2, $3, $1}' > tmp.1
+
+if (-z cpu.acc) then
+  echo 'veryfy ng (cpu.acc empty)'
+else
+
+  cat tmp.1 | \
+    head -`cat cpu.acc | wc -l` > tmp.2
+
+  cat cpu.acc | \
+    awk '{print $3, $1, $2}' | \
+    sed -e '/^0........[159D]/s/^.........../&%/' \
+        -e                   's/%../mm/' \
+        -e '/^0........[159D]/s/^.............../&%/' \
+        -e '/^0........[26AE]/s/^.........../&%/' \
+        -e                   's/%..../mmmm/' \
+        -e '/^0........[37BF]/s/^.........../&%/' \
+        -e                   's/%....../mmmmmm/' | \
+    awk '{print $2, $3, $1}' > tmp.4
+
+  diff -w tmp.4   tmp.2 > tmp.3
+  if (-z tmp.3) then
+    echo 'cpu r/w verify ok'
+  else
+    echo 'cpu r/w veryfy ng'
+  endif
+endif
+
+if (-z bus.acc) then
+  echo 'veryfy ng (bus.acc empty)'
+else
+  diff -w tmp.5 bus.acc > tmp.10
+  diff -w tmp.6 bus.acc > tmp.11
+  if (-z tmp.10) then
+    echo 'bus-cpu store verify ok'
+  else
+    if (-z tmp.11) then
+      echo 'bus-cpu store verify ok'
+    else
+      echo 'bus-cpu store veryfy ng'
+    endif
+  endif
+endif
+
+

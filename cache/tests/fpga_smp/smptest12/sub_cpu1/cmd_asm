@@ -1,0 +1,5 @@
+#! /bin/csh -f
+
+sh2-elf-gcc -Iinclude -DTIME -DHZ=60 -DNO_PROTOTYPES=1   -S cpu1.c
+sh2-elf-gcc -Iinclude -DTIME -DHZ=60 -DNO_PROTOTYPES=1   -S cpu1_restart_asm.c
+

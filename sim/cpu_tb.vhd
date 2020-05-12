@@ -55,6 +55,8 @@ architecture behaviour of cpu_tb is
 
   signal event_i : cpu_event_i_t;
   signal event_o : cpu_event_o_t;
+  signal copro_i : cop_i_t;
+  signal copro_o : cop_o_t;
   
   signal clk : std_logic := '1';
   signal rst : std_logic := '1';
@@ -190,7 +192,8 @@ begin
                      db_o => data_master_o, db_i => data_master_i,
                      inst_o => instr_master_o, inst_i => instr_master_i,
                      debug_o => debug_o, debug_i => debug_i,
-                     event_i => event_i, event_o => event_o);
+                     event_i => event_i, event_o => event_o,
+                     cop_o => copro_o, cop_i => copro_i);
 
   -- FIXME: Old CPU interface wrapper
   event_i.en  <= '0'       when event_req_i = "111" else '1';
@@ -206,6 +209,9 @@ begin
 
   event_ack_o <= event_o.ack;
   slp_o       <= event_o.slp;
+
+  copro1: entity work.cpusim_miniaic2(fullrw)
+          port map (clk_sys => clk, rst_i => rst, cpa => copro_o, cpy => copro_i);
 
   mon_mem_bus: bus_monitor generic map (memblock => "data sram")
           port map(clk => clk, rst => rst,

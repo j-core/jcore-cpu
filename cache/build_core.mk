@@ -1,0 +1,13 @@
+$(VHDLS) += cache_pkg.vhd
+$(VHDLS) += dcache.vhd
+$(VHDLS) += dcache_ccl.vhd
+$(VHDLS) += dcache_mcl.vhd
+$(VHDLS) += dcache_ram.vhd
+$(VHDLS) += dcache_adapter.vhd
+$(VHDLS) += icache_modereg.vhd
+$(VHDLS) += icache_modereg_wsbu.vhd
+$(VHDLS) += icache.vhd
+$(VHDLS) += icache_ccl.vhd
+$(VHDLS) += icache_mcl.vhd
+$(VHDLS) += icache_ram.vhd
+$(VHDLS) += icache_adapter.vhd

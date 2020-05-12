@@ -3,7 +3,7 @@ OBJS += uartlite.o
 #OBJS += uart16550.o
 
 TESTS_OBJS := testbra.o
-TESTS_OBJS += testmov.o testmov2.o
+TESTS_OBJS += testmov.o testmov2.o testmov3.o
 TESTS_OBJS += testalu.o
 TESTS_OBJS += testshift.o
 TESTS_OBJS += testmul.o testmulu.o testmuls.o testmull.o testdmulu.o testdmuls.o testmulconf.o
@@ -46,7 +46,7 @@ main.o: main.c
 	$(CC) $(CFLAGS) -c $< -o $@
 
 version.c:
-	@printf "char version_string[] = \"revision: open\\\\nbuild: $(shell date)\\\\n\";\n" > $@
+	@printf "char version_string[] = \"revision: $(shell hg head | head -1)\\\\nbuild: $(shell date)\\\\n\";\n" > $@
 
 clean:
 	rm -f *.[oa] tests/*.o tests/libtests.a

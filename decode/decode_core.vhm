@@ -60,7 +60,7 @@ architecture arch of decode_core is
   begin
     op.plane := SYSTEM_INSTR;
     op.code := code;
-    if decode_type = MICROCODE then
+    if decode_type = ROM then
       -- Microcode-based decoder requires an address into the ROM that is different
       -- for each system instruction
       op.addr := system_instr_rom_addrs(instr);
@@ -92,8 +92,8 @@ architecture arch of decode_core is
   begin
     op.plane := NORMAL_INSTR;
     op.code := instr;
-    if decode_type = MICROCODE then
-      -- Microcode-based decoder requires a first stage decode from the instruction
+    if decode_type = ROM then
+      -- ROM-based decoder requires a first stage decode from the instruction
       -- to the address in the ROM where the microcode starts for the instruction
       op.addr := predecode_rom_addr(instr);
     else
@@ -103,23 +103,21 @@ architecture arch of decode_core is
   end;
 begin
 
-  decode_core : process(this,slot,next_id_stall_a,ilevel_cap,dispatch,maskint_next,delay_jump,event_i,next_op)
-    register this when clk='1' and clk'event reset when rst='1';
+  decode_core : process(this,next_id_stall_a,ilevel_cap,dispatch,maskint_next,delay_jump,event_i,next_op)
+    register this when clk='1' and slot='1' and clk'event reset when rst='1';
   begin
-    if slot = '1' then
-      this.maskint := maskint_next;
-      if ilevel_cap = '1' then
-        this.ilevel := event_i.lvl;
-      end if;
-      if this.id_stall = '0' and this.instr_seq_zero = '1' then
-        this.op := next_op;
-      end if;
-      this.id_stall := next_id_stall_a;
-      if next_id_stall_a = '0' then
-        this.delay_slot := delay_jump;
-        this.instr_seq_zero := dispatch;
-        this.op.addr := std_logic_vector(unsigned(this.op.addr) + 1);
-      end if;
+    this.maskint := maskint_next;
+    if ilevel_cap = '1' then
+      this.ilevel := event_i.lvl;
+    end if;
+    if this.id_stall = '0' and this.instr_seq_zero = '1' then
+      this.op := next_op;
+    end if;
+    this.id_stall := next_id_stall_a;
+    if next_id_stall_a = '0' then
+      this.delay_slot := delay_jump;
+      this.instr_seq_zero := dispatch;
+      this.op.addr := std_logic_vector(unsigned(this.op.addr) + 1);
     end if;
   end process;
 

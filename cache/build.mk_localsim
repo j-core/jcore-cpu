@@ -1,0 +1,7 @@
+include $(dir $(lastword $(MAKEFILE_LIST)))build_core.mk
+
+$(VHDLS) += cache_config_sim.vhd
+$(VHDLS) += cache_config_fpga.vhd
+$(VHDLS) += ../dma/bus_mux_typeb.vhd
+$(VHDLS) += ../dma/dma_pkg.vhd
+

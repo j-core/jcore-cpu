@@ -1,0 +1,7 @@
+#! /bin/csh -f
+
+sh2-uclinux-gcc -Wall -Werror -Wno-error=unused-value -c cpu1_int.s
+sh2-uclinux-gcc                                          cpu1_int.o \
+                -Wl,-elf2flt -o                          cpu1_int
+cat                                                      cpu1_int | \
+  xxd > sm20c1i.xxd            

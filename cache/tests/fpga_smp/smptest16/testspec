@@ -1,0 +1,28 @@
+(1) read all register's power on value
+
+base+0x00   ???
+base+0x04  00000000
+base+0x08  00000000
+base+0x0c  ??007ff0
+base+0x10  0007a120
+base+0x14  00000000
+base+0x18  00000014
+ @@
+base+0x20  00000000
+base+0x24  00000000 + sec after power on
+base+0x28  nanosec
+
+(2) write 1 check
+ 2-1  base+0x00  writedata 0xf8ffffff -> read 00ffffff
+                 writedata 00000000   ( to suppress other effect)
+ 2-2  base+0x04  writedate 0xffffffff -> read ffffffff
+ 2-3  base+0x08  writedate 0xffffffff -> read ffffffff
+ 2-4  base+0x0c  writedate 0xffffffff -> read 00007ff0 (read only)
+ 2-5  base+0x10  writedate 0xffffffff -> read ffffffff
+ 2-6  base+0x14  writedate 0xffffffff -> read 00000000
+ 2-7  base+0x18  writedate 0xffffffff -> read 00000014
+ @@
+ 2-8  base+0x20  writedate 0xffffffff -> read ffffffff
+ 2-9  base+0x24  writedate 0xffffffff -> read ffffffff (if same sec)
+                                      -> read 00000000 (if same sec)
+ 2-10 base+0x28  writedate 0xffffffff -> read nano-sec

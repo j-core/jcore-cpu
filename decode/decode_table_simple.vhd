@@ -85,7 +85,7 @@ begin
         mac_s_latch <= '0';
         ex_stall <= ('0', '0', '0', '0', SEL_ARITH, SEL_PREV, SEL_CLEAR, SEL_XBUS, SEL_ZBUS, '0', '0', '0', LOGIC, '0', NOP, SEL_XBUS, SEL_YBUS);
         debug <= '0';
-        wb_stall <= ('0', '0', '0', '0', '0', SEL_XBUS, SEL_YBUS, NOP);
+        wb_stall <= ('0', '0', '0', '0', '0', SEL_XBUS, SEL_YBUS, NOP, DBUS);
         delay_jump <= '0';
         id <= ('0', '0', '0');
         maskint_next <= '0';
@@ -93,6 +93,7 @@ begin
         ex.aluinx_sel <= SEL_XBUS;
         ex.alumanip <= SWAP_BYTE;
         ex.aluiny_sel <= SEL_YBUS;
+        ex.coproc_cmd <= NOP;
         ex.arith_ci_en <= '0';
         ex.xbus_sel <= SEL_IMM;
         wb.regnum_w <= "00000";
@@ -1113,6 +1114,66 @@ begin
                 when others =>
 
             end case;
+        elsif std_match(cond, "00100----11001000") then
+            -- STS CP0_COM, Rn [4nC8]
+            -- Rn-4->Rn,PR->(Rn)
+            case op.addr(3 downto 0) is
+                when x"0" =>
+                    -- Rn = W
+                    wb_stall.wrreg_w <= '1';
+                    wb.regnum_w <= '0' & op.code(11 downto 8);
+                    id.incpc <= '1';
+                    dispatch <= '1';
+                    id.if_issue <= '1';
+                    wb_stall.cpu_data_mux <= COPROC;
+                    ex.coproc_cmd <= STS;
+
+                when others =>
+
+            end case;
+        elsif std_match(cond, "00100----11001001") then
+            -- CSTS CP0_COM, CP0_Rn [4nC9]
+            -- Rn-4->Rn,PR->(Rn)
+            case op.addr(3 downto 0) is
+                when x"0" =>
+                    id.incpc <= '1';
+                    dispatch <= '1';
+                    id.if_issue <= '1';
+                    ex.coproc_cmd <= STS;
+
+                when others =>
+
+            end case;
+        elsif std_match(cond, "00000----01011010") then
+            -- STS CPI_COM, Rn [0n5A]
+            -- Rn-4->Rn,PR->(Rn)
+            case op.addr(3 downto 0) is
+                when x"0" =>
+                    -- Rn = W
+                    wb_stall.wrreg_w <= '1';
+                    wb.regnum_w <= '0' & op.code(11 downto 8);
+                    id.incpc <= '1';
+                    dispatch <= '1';
+                    id.if_issue <= '1';
+                    wb_stall.cpu_data_mux <= COPROC;
+                    ex.coproc_cmd <= STS;
+
+                when others =>
+
+            end case;
+        elsif std_match(cond, "01111----00001101") then
+            -- CSTS CPI_COM, CPI_Rn [Fn0D]
+            -- Rn-4->Rn,PR->(Rn)
+            case op.addr(3 downto 0) is
+                when x"0" =>
+                    id.incpc <= '1';
+                    dispatch <= '1';
+                    id.if_issue <= '1';
+                    ex.coproc_cmd <= STS;
+
+                when others =>
+
+            end case;
         elsif std_match(cond, "00100----00001110") then
             -- LDC Rm, SR [4m0E]
             -- Rm -> SR
@@ -1504,6 +1565,70 @@ begin
                     id.incpc <= '1';
                     dispatch <= '1';
                     id.if_issue <= '1';
+
+                when others =>
+
+            end case;
+        elsif std_match(cond, "00100----10001000") then
+            -- LDS Rm, CP0_COM [4m88]
+            -- (Rm)->PR,Rm+4->Rm
+            case op.addr(3 downto 0) is
+                when x"0" =>
+                    -- Y = Rm
+                    ex.ybus_sel <= SEL_REG;
+                    ex.regnum_y <= '0' & op.code(11 downto 8);
+                    ex_stall.zbus_sel <= SEL_YBUS;
+                    maskint_next <= '1';
+                    id.incpc <= '1';
+                    dispatch <= '1';
+                    id.if_issue <= '1';
+                    ex.coproc_cmd <= LDS;
+
+                when others =>
+
+            end case;
+        elsif std_match(cond, "00100----10001001") then
+            -- CLDS CP0_Rm, CP0_COM [4m89]
+            -- (Rm)->PR,Rm+4->Rm
+            case op.addr(3 downto 0) is
+                when x"0" =>
+                    maskint_next <= '1';
+                    id.incpc <= '1';
+                    dispatch <= '1';
+                    id.if_issue <= '1';
+                    ex.coproc_cmd <= CLDS;
+
+                when others =>
+
+            end case;
+        elsif std_match(cond, "00100----01011010") then
+            -- LDS Rm, CPI_COM [4m5A]
+            -- (Rm)->PR,Rm+4->Rm
+            case op.addr(3 downto 0) is
+                when x"0" =>
+                    -- Y = Rm
+                    ex.ybus_sel <= SEL_REG;
+                    ex.regnum_y <= '0' & op.code(11 downto 8);
+                    ex_stall.zbus_sel <= SEL_YBUS;
+                    maskint_next <= '1';
+                    id.incpc <= '1';
+                    dispatch <= '1';
+                    id.if_issue <= '1';
+                    ex.coproc_cmd <= LDS;
+
+                when others =>
+
+            end case;
+        elsif std_match(cond, "01111----00011101") then
+            -- CLDS CPI_Rm, CPI_COM [Fm1D]
+            -- (Rm)->PR,Rm+4->Rm
+            case op.addr(3 downto 0) is
+                when x"0" =>
+                    maskint_next <= '1';
+                    id.incpc <= '1';
+                    dispatch <= '1';
+                    id.if_issue <= '1';
+                    ex.coproc_cmd <= CLDS;
 
                 when others =>
 

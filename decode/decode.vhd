@@ -30,6 +30,8 @@ entity decode is
         slot : in std_logic;
         t_bcc : in std_logic;
         buses : out buses_ctrl_t;
+        copreg : out std_logic_vector(7 downto 0);
+        coproc : out coproc_ctrl_t;
         debug : out std_logic;
         event_ack : out std_logic;
         func : out func_ctrl_t;
@@ -60,10 +62,10 @@ architecture arch of decode is
     signal pipeline_r : pipeline_t;
     signal wb : pipeline_wb_t;
     signal wb_stall : pipeline_wb_stall_t;
-    constant STAGE_EX_RESET : pipeline_ex_t := (imm_val => x"00000000", xbus_sel => SEL_IMM, ybus_sel => SEL_IMM, regnum_z => "00000", regnum_x => "00000", regnum_y => "00000", alumanip => SWAP_BYTE, aluinx_sel => SEL_XBUS, aluiny_sel => SEL_YBUS, arith_func => ADD, arith_ci_en => '0', arith_sr_func => ZERO, logic_func => LOGIC_NOT, logic_sr_func => ZERO, mac_busy => '0', ma_wr => '0', mem_lock => '0', mem_size => BYTE);
+    constant STAGE_EX_RESET : pipeline_ex_t := (imm_val => x"00000000", xbus_sel => SEL_IMM, ybus_sel => SEL_IMM, regnum_z => "00000", regnum_x => "00000", regnum_y => "00000", alumanip => SWAP_BYTE, aluinx_sel => SEL_XBUS, aluiny_sel => SEL_YBUS, arith_func => ADD, arith_ci_en => '0', arith_sr_func => ZERO, logic_func => LOGIC_NOT, logic_sr_func => ZERO, mac_busy => '0', ma_wr => '0', mem_lock => '0', mem_size => BYTE, coproc_cmd => NOP);
     constant STAGE_WB_RESET : pipeline_wb_t := (regnum_w => "00000", mac_busy => '0');
     constant STAGE_EX_STALL_RESET : pipeline_ex_stall_t := (wrpc_z => '0', wrsr_z => '0', ma_issue => '0', wrpr_pc => '0', zbus_sel => SEL_ARITH, sr_sel => SEL_PREV, t_sel => SEL_CLEAR, mem_addr_sel => SEL_XBUS, mem_wdata_sel => SEL_ZBUS, wrreg_z => '0', wrmach => '0', wrmacl => '0', shiftfunc => LOGIC, mulcom1 => '0', mulcom2 => NOP, macsel1 => SEL_XBUS, macsel2 => SEL_YBUS);
-    constant STAGE_WB_STALL_RESET : pipeline_wb_stall_t := (mulcom1 => '0', wrmach => '0', wrmacl => '0', wrreg_w => '0', wrsr_w => '0', macsel1 => SEL_XBUS, macsel2 => SEL_YBUS, mulcom2 => NOP);
+    constant STAGE_WB_STALL_RESET : pipeline_wb_stall_t := (mulcom1 => '0', wrmach => '0', wrmacl => '0', wrreg_w => '0', wrsr_w => '0', macsel1 => SEL_XBUS, macsel2 => SEL_YBUS, mulcom2 => NOP, cpu_data_mux => DBUS);
     constant PIPELINE_RESET : pipeline_t := (ex1 => STAGE_EX_RESET, ex1_stall => STAGE_EX_STALL_RESET, wb1 => STAGE_WB_RESET, wb2 => STAGE_WB_RESET, wb3 => STAGE_WB_RESET, wb1_stall => STAGE_WB_STALL_RESET, wb2_stall => STAGE_WB_STALL_RESET, wb3_stall => STAGE_WB_STALL_RESET);
 begin
     maskint_o <= (mask_int or maskint_next);
@@ -180,6 +182,7 @@ begin
     pc.wrpr <= pipeline_r.ex1_stall.wrpr_pc;
     reg.wr_z <= pipeline_r.ex1_stall.wrreg_z;
     buses.z_sel <= pipeline_r.ex1_stall.zbus_sel;
+    coproc.cpu_data_mux <= pipeline_r.wb2_stall.cpu_data_mux;
     reg.wr_w <= pipeline_r.wb3_stall.wrreg_w;
     -- assign combined outputs
     mac.com1 <= (pipeline_r.ex1_stall.mulcom1 or pipeline_r.wb3_stall.mulcom1);
@@ -189,4 +192,6 @@ begin
     mac.sel2 <= pipeline_r.ex1_stall.macsel2 when (pipeline_r.ex1_stall.mulcom2 /= NOP or pipeline_r.ex1_stall.wrmacl = '1') else pipeline_r.wb3_stall.macsel2;
     mac.com2 <= pipeline_r.ex1_stall.mulcom2 when pipeline_r.ex1_stall.mulcom2 /= NOP else pipeline_r.wb3_stall.mulcom2;
     sr.sel <= SEL_WBUS when pipeline_r.wb3_stall.wrsr_w = '1' else pipeline_r.ex1_stall.sr_sel;
+    coproc.coproc_cmd <= CSTS when (pipeline_r.ex1.coproc_cmd = STS and pipeline_r.wb1_stall.cpu_data_mux = DBUS) else pipeline_r.ex1.coproc_cmd;
+    copreg <= op.code(11 downto 4);
 end;

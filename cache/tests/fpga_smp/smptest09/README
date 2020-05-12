@@ -1,0 +1,4 @@
+makefile done not generate sm09c1.xxd.
+
+create te09c1.xxd by command line
+  cat te09c1 | xxd > te09c1.xxd

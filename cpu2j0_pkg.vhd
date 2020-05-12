@@ -70,7 +70,33 @@ package cpu2j0_pack is
       dbg  : std_logic;
    end record;
 
-   component cpu is port (
+   type cop_o_t is record
+      d    : std_logic_vector(31 downto 0);
+      rna  : std_logic_vector( 3 downto 0);
+      rnb  : std_logic_vector( 3 downto 0);
+      op   : std_logic_vector( 4 downto 0);
+      en   : std_logic;
+      stallcp : std_logic;
+   end record;
+   constant NULL_COPR_O : cop_o_t := ( d    => (others => '0'),
+      rna  => (others => '0'),
+      rnb  => (others => '0'),
+      op   => (others => '0'),
+      en   =>            '0' ,
+      stallcp =>         '0'   );
+
+   type cop_i_t is record
+     d   : std_logic_vector(31 downto 0);
+     ack : std_logic;
+     t   : std_logic;
+     exc : std_logic;
+   end record;
+   constant NULL_COPR_I : cop_i_t := ( d   => (others => '0'),
+     ack => '1', t => '0', exc => '0');
+
+   component cpu is generic ( 
+      COPRO_DECODE : boolean := true);
+     port (
       clk          : in  std_logic;
       rst          : in  std_logic;
       db_o         : out cpu_data_o_t;
@@ -81,7 +107,9 @@ package cpu2j0_pack is
       debug_o      : out cpu_debug_o_t;
       debug_i      : in  cpu_debug_i_t;
       event_o      : out cpu_event_o_t;
-      event_i      : in  cpu_event_i_t);
+      event_i      : in  cpu_event_i_t;
+      cop_o        : out cop_o_t;
+      cop_i        : in  cop_i_t);
    end component cpu;
 
    function loopback_bus(b : cpu_data_o_t) return cpu_data_i_t;

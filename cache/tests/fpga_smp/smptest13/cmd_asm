@@ -1,0 +1,3 @@
+#! /bin/csh -f
+
+sh2-uclinux-gcc -O2 -Wall -Werror -Wno-error=unused-value    -S test13.c

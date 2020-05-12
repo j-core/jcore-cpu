@@ -28,14 +28,14 @@
     (when-let [ops (parser/check-load file-name)]
       (let [{:keys [pkg decode decode-core
                     decode-table
-                    decode-simple decode-reverse decode-rom
+                    decode-simple decode-direct decode-rom
                     decode-body
                     test-decode-pkg print-op]}
             (apply genvhdl/gen-decoder ops options)]
         (VhdlOutput/toFile decode "../decode.vhd")
         (VhdlOutput/toFile decode-table "../decode_table.vhd")
         (VhdlOutput/toFile decode-simple "../decode_table_simple.vhd")
-        (VhdlOutput/toFile decode-reverse "../decode_table_reverse.vhd")
+        (VhdlOutput/toFile decode-direct "../decode_table_direct.vhd")
         (VhdlOutput/toFile decode-rom "../decode_table_rom.vhd")
         (VhdlOutput/toFile decode-body "../decode_body.vhd")
         (VhdlOutput/toFile pkg "../decode_pkg.vhd")

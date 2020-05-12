@@ -1,0 +1,7 @@
+loop count = 1000
+cache mode = 3 (dcon, icon)
+
+smptest13    1.79 sec
+single cpu   2.93 sec 0901_cpubasic/06_cpu0_mgsort_fpg
+
+two cpu speed up = 163%

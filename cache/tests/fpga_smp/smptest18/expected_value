@@ -1,0 +1,7 @@
+loop count = 2000
+sumdma  11f80000
+sumcpu  9e2a140
+
+loop count = 300
+sumdma  11f80000
+sumcpu  a23b04e

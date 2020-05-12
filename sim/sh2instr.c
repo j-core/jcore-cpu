@@ -33,6 +33,8 @@ if ((instr & 0xffff) == 0x8) {
   return snprintf(str, size, "STS MACL, R%hu", (uint16_t)((instr >> 8) & 0xF));
 } else if ((instr & 0xf0ff) == 0x2a) {
   return snprintf(str, size, "STS PR, R%hu", (uint16_t)((instr >> 8) & 0xF));
+} else if ((instr & 0xf0ff) == 0x5a) {
+  return snprintf(str, size, "STS CPI_COM, R%hu", (uint16_t)((instr >> 8) & 0xF));
 } else if ((instr & 0xf0ff) == 0x23) {
   return snprintf(str, size, "BRAF R%hu", (uint16_t)((instr >> 8) & 0xF));
 } else if ((instr & 0xf0ff) == 0x3) {
@@ -187,6 +189,10 @@ if ((instr & 0xf0ff) == 0x4015) {
   return snprintf(str, size, "STS.L MACL, @-R%hu", (uint16_t)((instr >> 8) & 0xF));
 } else if ((instr & 0xf0ff) == 0x4022) {
   return snprintf(str, size, "STS.L PR, @-R%hu", (uint16_t)((instr >> 8) & 0xF));
+} else if ((instr & 0xf0ff) == 0x40c8) {
+  return snprintf(str, size, "STS CP0_COM, R%hu", (uint16_t)((instr >> 8) & 0xF));
+} else if ((instr & 0xf0ff) == 0x40c9) {
+  return snprintf(str, size, "CSTS CP0_COM, CP0_R%hu", (uint16_t)((instr >> 8) & 0xF));
 } else if ((instr & 0xf0ff) == 0x400e) {
   return snprintf(str, size, "LDC R%hu, SR", (uint16_t)((instr >> 8) & 0xF));
 } else if ((instr & 0xf0ff) == 0x401e) {
@@ -215,6 +221,12 @@ if ((instr & 0xf0ff) == 0x4015) {
   return snprintf(str, size, "LDS.L @R%hu+, MACL", (uint16_t)((instr >> 8) & 0xF));
 } else if ((instr & 0xf0ff) == 0x4026) {
   return snprintf(str, size, "LDS.L @R%hu+, PR", (uint16_t)((instr >> 8) & 0xF));
+} else if ((instr & 0xf0ff) == 0x4088) {
+  return snprintf(str, size, "LDS R%hu, CP0_COM", (uint16_t)((instr >> 8) & 0xF));
+} else if ((instr & 0xf0ff) == 0x4089) {
+  return snprintf(str, size, "CLDS CP0_R%hu, CP0_COM", (uint16_t)((instr >> 8) & 0xF));
+} else if ((instr & 0xf0ff) == 0x405a) {
+  return snprintf(str, size, "LDS R%hu, CPI_COM", (uint16_t)((instr >> 8) & 0xF));
 } else if ((instr & 0xf00f) == 0x400c) {
   return snprintf(str, size, "SHAD R%hu, R%hu", (uint16_t)((instr >> 4) & 0xF), (uint16_t)((instr >> 8) & 0xF));
 } else if ((instr & 0xf00f) == 0x400d) {
@@ -383,7 +395,11 @@ if ((instr & 0xf000) == 0xe000) {
 }
 
 static int line15(char *str, size_t size, uint16_t instr) {
-{
+if ((instr & 0xf0ff) == 0xf00d) {
+  return snprintf(str, size, "CSTS CPI_COM, CPI_R%hu", (uint16_t)((instr >> 8) & 0xF));
+} else if ((instr & 0xf0ff) == 0xf01d) {
+  return snprintf(str, size, "CLDS CPI_R%hu, CPI_COM", (uint16_t)((instr >> 8) & 0xF));
+} else {
   return -1;
 }
 }

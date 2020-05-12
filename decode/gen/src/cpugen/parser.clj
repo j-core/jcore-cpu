@@ -56,7 +56,9 @@
    "LOGIC SR" :logic-sr
    "CARRYIN EN" :carryin-en
    "SHIFT" :shift
-   "MANIP" :manip})
+   "MANIP" :manip
+   "DATA MUX" :cpu-data-mux
+   "COPROC CMD" :coproc-cmd})
 
 (defn- reverse-map [m]
   (into {} (map (fn [[a b]] [b a]) m)))
@@ -317,7 +319,14 @@
          (let [[m name opt] manip-matches]
            (if opt
              [(keyword name) (keyword opt)]
-             (keyword name))))))})
+             (keyword name))))))
+   :cpu-data-mux {"dbus" :dbus
+                  "coproc" :coproc}
+   :coproc-cmd {"nop" :nop
+                "lds" :lds
+                "sts" :sts
+                "clds" :clds
+                "csts" :sts}})
 
 (def ^:dynamic *errors* nil)
 

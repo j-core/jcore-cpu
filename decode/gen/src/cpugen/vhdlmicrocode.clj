@@ -269,7 +269,11 @@
      (when (:delay-jump mc)
        (so :delay-jump))
      (when (:halt mc)
-       (so :slp)))))
+       (so :slp))
+     (when-let [cd (:cpu-data-mux mc)]
+       (ao :cpu-data-mux cd))
+     (when-let [cmd (:coproc-cmd mc)]
+       (ao :coproc-cmd cmd)))))
 
 (defn gen-assigns-check [op mc]
   (let [assigns (gen-assigns op mc)]

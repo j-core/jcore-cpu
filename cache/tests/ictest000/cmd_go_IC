@@ -1,0 +1,26 @@
+#! /bin/csh -f
+
+/bin/rm test.acc > & /dev/null
+
+make -f tests/ictest000/Makefile_for_ic    icache_tb.ghw
+
+echo  'verifying'
+wc -l test.acc | tr '\012' ' '
+echo 'access'
+
+cat test.acc | \
+  cut -c4-7 > tmp.1
+cat test.acc | \
+  cut -c9-12 > tmp.2
+
+if (-z tmp.1) then
+  echo 'veryfy ng (test.acc empty)'
+else
+  diff tmp.1 tmp.2 > tmp.3
+  if (-z tmp.3) then
+    echo 'verify ok'
+  else
+    echo 'veryfy ng'
+  endif
+endif
+

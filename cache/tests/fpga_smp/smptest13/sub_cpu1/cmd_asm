@@ -1,0 +1,4 @@
+#! /bin/csh -f
+
+sh2-elf-gcc -O2 -Iinclude -DTIME -DHZ=60 -DNO_PROTOTYPES=1   -S cpu1.c
+

@@ -1,0 +1,593 @@
+library ieee;
+use ieee.std_logic_1164.all;
+use ieee.numeric_std.all;
+
+use work.cache_pack.all;
+use work.cpu2j0_pack.all;
+use work.data_bus_pack.all;
+
+entity dcache_ccl is port (
+   clk    : in std_logic; -- cpu clock, 125MHz
+   rst    : in std_logic;
+   -- Cache RAM port
+   ra     : in dcache_ram_o_t;
+   ry_ccl : out dcache_ramccl_i_t;
+   -- CPU port
+   a      : in cpu_data_o_t;
+   a_lock : in std_logic;
+   y      : out cpu_data_i_t;
+   -- snoop port
+   sa     : in  dcache_snoop_io_t;
+   sy     : out dcache_snoop_io_t;
+   -- Cclk Mclk if
+   ctom   : out ctom_dc_t;
+   mtoc   : in  mtoc_dc_t;
+   -- ic on/off mode
+   ctrl   : in cache_ctrl_t);
+end dcache_ccl;
+
+architecture beh of dcache_ccl is
+
+  register variable this : dcacheccl_reg_t reset := DCACHECCLK_REG_RESET;
+
+  signal adrs_r_seqequ_s          : std_logic;
+  signal cachehit_s             : std_logic;
+  signal cachehit_dur_fill_s    : std_logic;
+  signal cachehit_snoop_s       : std_logic;
+  signal remain_wv_observe1     : std_logic_vector(7 downto 0);
+  signal remain_wv_observe2     : std_logic_vector(7 downto 0);
+
+begin
+  p0 : process(ra,a,a_lock,sa,mtoc,ctrl,this)
+    register this when clk = '1' and clk'event reset when rst = '1';
+
+  -- ---------------------------------------------------------------------------
+  -- variables
+  -- ---------------------------------------------------------------------------
+  variable nx                : dcacheccl_reg_t;
+  variable adrs_equcacheli   : std_logic; -- a.a and ev a.a are on same cache
+                                -- line
+  variable adrs_r_seqequ       : std_logic; -- a.a and prev a.a (on prev valid 
+                                --  cycle) is relation of (equal) or
+                                --  (a = prev.a + 4 within 32Byte)
+  variable cachehit          : std_logic;
+  variable cachehit_snoop    : std_logic;
+  variable cachehit_dur_fill : std_logic;
+  variable ctom_b0en         : std_logic;
+  variable ctom_b3en         : std_logic_vector(1 downto 0);
+  variable ctom_cmd          : std_logic_vector(2 downto 0); -- command of b0
+  variable mem_trans_ack     : std_logic;
+  variable obs_wrcompl_ack     : std_logic_vector(1 downto 0);
+  variable sz                : std_logic_vector(1 downto 0);
+  variable vsel              : std_logic;
+  variable wvsel             : std_logic;
+  variable y_ack_beforet_i1   : std_logic; -- y.ack before tag, independent
+                                --           (independent of cachehit)
+  variable y_ack_beforet_i2   : std_logic; -- y.ack before tag, independent
+                                --           (independent of cachehit)
+                                --           (uncache access)
+  variable y_ack_beforet_d   : std_logic; -- y.ack before tag,   dependent
+                                --           (  dependent of cachehit)
+  variable y_ack_off         : std_logic;
+  -- ---------------------------------------------------------------------------
+
+  begin -- begin of process ( )
+
+    -- cpu return data (note: y.ack is combinatorial)
+    if(this.dc_onm = '1') and (a_lock = '0') then
+      if(this.state = RMISS2) then
+           y.d        <= mtoc.b2d_cfil; -- cache on critical read data comes
+                                      -- through fsync b2
+      elsif(this.aenrd_del1 = '1') and (this.ry_en0 = '1') then
+           y.d        <= ra.d0;
+      else y.d        <= this.dw; end if;
+    else   y.d        <= mtoc.b0d_unc; -- cache off read data / TAB.B read data
+                                      -- comes through
+                                      -- fsync b0.  Be conscious the difference
+                                      -- between b2 / b0.
+    end if;
+
+    -- tag address
+    if(this.state = WMISS1) then
+                  nx.ta0  := this.ma0(CACHE_INDEX_MSB downto 5);
+    else          nx.ta0  := a.a     (CACHE_INDEX_MSB downto 5); end if;
+    ry_ccl.ta0 <= nx.ta0;
+
+    -- tag ram (snoop side) control signals -----------------------------------
+    -- tag wr
+    if((this.state = RMISS1) or (this.state = WMISS1)) then
+                              ry_ccl.ta1 <= nx.ta0;
+                              nx.ry_twr := '1';
+    else                      ry_ccl.ta1 <= sa.al(CACHE_INDEX_BITS-1 downto 0);
+                              nx.ry_twr := '0'; end if;
+    ry_ccl.twr0            <= nx.ry_twr;
+
+    -- sabank receive
+    if   (this.b3en_r(1) = '1') and (mtoc.b31enr = '0') then
+         obs_wrcompl_ack := b"10";
+         nx.sabank_rcv   := '1';
+         sy.en           <= '1';
+    elsif(this.b3en_r(0) = '1') and (mtoc.b30enr = '0') then
+         obs_wrcompl_ack := b"01";
+         nx.sabank_rcv   := '0';
+         sy.en           <= '1';
+    else obs_wrcompl_ack := b"00";
+         nx.sabank_rcv   := this.sabank_rcv;
+         sy.en           <= '0'; end if;
+    mem_trans_ack := (not mtoc.b0enr) and this.rfillv;
+
+    if(nx.sabank_rcv = '0') then
+         sy.al       <= this'register.saout_al2a;
+    else sy.al       <= this'register.saout_al2b; end if;
+
+    if(this.state = OFF2) then y_ack_off := mem_trans_ack;
+    else                       y_ack_off := '0';
+    end if;
+
+    -- cache ram enable
+    if( this.state = RMISS2) or
+      ((this.state = RMISS3) and (mem_trans_ack = '0')) or
+      ((this.state = WMISS2) and (mem_trans_ack = '0')) then
+                                            nx.ry_en0  := '0';
+    else                                    nx.ry_en0  := '1'; end if;
+    ry_ccl.en0                           <= nx.ry_en0;
+
+    -- cache write enable
+    if(a.en = '1') and (a.wr = '1') and (a_lock = '0') then
+      case this.state is
+      when IDLE | SB1 | SB2 => ry_ccl.wr0 <=  '1';
+                               ry_ccl.we0 <= a.we;
+      when others           => ry_ccl.wr0 <=  '0';
+                               ry_ccl.we0 <= x"0";
+      end case;
+    else                       ry_ccl.wr0 <=  '0';
+                               ry_ccl.we0 <= x"0";
+    end if;
+
+    -- ------------------------------------------------------------------------
+    -- address sequece locates on same cache line
+    -- ------------------------------------------------------------------------
+    if(this.a_prev.a(27 downto 5) = a.a(27 downto 5)) and
+      (this.a_prev_v = '1') then                 adrs_equcacheli := '1';
+    else                                         adrs_equcacheli := '0'; end if;
+
+    -- ------------------------------------------------------------------------
+    if
+      (  adrs_equcacheli = '1') and
+      (  this.a_prev.wr = '0') and
+      (((std_logic_vector(unsigned(this.a_prev.a(4 downto 2)) + 1) = 
+          a.a(4 downto 2)) and
+        ( a.a(4 downto 2) /= b"000")) or
+       ((this.a_prev.a(4 downto 2) = a.a(4 downto 2)) and
+        (this.pref_inc = '0'))) then 
+                                                    adrs_r_seqequ := '1';
+    else                                            adrs_r_seqequ := '0';
+    end if;
+    adrs_r_seqequ_s                                <= adrs_r_seqequ;
+
+
+    -- y.ack generating conditions
+    -- initial value ----------------------------------------------------------
+                     y_ack_beforet_i1 := '0'; -- initial
+                     y_ack_beforet_i2 := '0'; -- initial
+                     y_ack_beforet_d := '0'; -- initial
+    if(a.en = '1') then
+      case this.state is
+      -- part 1 ---------------------------------------------------------------
+      when IDLE =>
+      if(a_lock = '0') then
+        if(a.wr = '0') then  -- hit cache line and data ready
+          if (adrs_r_seqequ = '1') then
+                     y_ack_beforet_d := '1'; end if;
+        else
+          if (adrs_equcacheli = '1') then
+                     y_ack_beforet_i1 := '1'; end if;
+                             -- either hit or miss, return ack and accept
+                             -- next request
+        end if;
+      end if;
+      -- part 2 ---------------------------------------------------------------
+      when RMISS2 =>
+      if (this.b2en_r = '1') and (mtoc.b2enr = '0') then
+                                        -- data return causing read miss
+                     y_ack_beforet_i1 := '1'; end if;
+      -- part 3 ---------------------------------------------------------------
+      when SB2 =>
+      if(a_lock = '0') then
+        if(a.wr = '0') then
+          if (adrs_r_seqequ = '1') then
+                     y_ack_beforet_d := '1'; end if;
+        else
+          if(mem_trans_ack = '1') and
+            (adrs_equcacheli = '1') and
+            (ctrl.en = this.dc_onm) then
+                     y_ack_beforet_i1 := '1'; end if;
+        end if;
+      end if;
+      -- part 4 ---------------------------------------------------------------
+      when RLOCK2 | WUNCA2 =>
+      if(mem_trans_ack = '1') then
+                     y_ack_beforet_i2 := '1'; end if;
+      -- part 1-4 end ---------------------------------------------------------
+      when others =>                     -- no possibility of ack 
+      end case;
+    end if;
+
+    if((y_ack_beforet_i1 = '1') or ( y_ack_beforet_d = '1')) and
+       (a.wr = '0') then  ry_ccl.a0(2  downto 0) <= 
+                               std_logic_vector(unsigned(a.a(4 downto 2)) + 1);
+    else                  ry_ccl.a0(2  downto 0) <=      a.a(4 downto 2);
+    end if;
+    -- --------- note: upper bits 
+    -- ---------         "ry_ccl.a0"(@@ downto 3), (for the 8kB case,
+    -- ---------         "ry_ccl.a0"(10 downto 3)) is generated outside of 
+    -- ---------         process block.  see at the bottom of the file
+
+    -- prefetch 1 bit state (indicator, rather than state) --
+    if(this.dc_onm = '0') or   (this.state = RMISS2) or
+      (this.state = RMISS3) or (this.state = WMISS2) then
+                             nx.pref_inc := '0';
+    elsif(a.en = '0') then   nx.pref_inc := this.pref_inc; -- keep when no en
+    elsif((y_ack_beforet_i1 = '1') or ( y_ack_beforet_d = '1')) and
+         ( a.wr = '0') then
+                             nx.pref_inc := '1';
+    else                     nx.pref_inc := '0';
+    end if;
+
+    -- ------------------------------------------------------------------------
+    -- -------- tag ram access timing separator on RTL
+    -- --------   logic that depends tag ram output starts here
+    -- ------------------------------------------------------------------------
+
+    -- ------------------------------------------------------------------------
+    -- create hit check and cpu ack.
+    -- note :  "_s" suffix "signals" - not variable - are obervation signals
+    -- ------------------------------------------------------------------------
+    -- cachehit comparator & cachehit condition
+    -- --------------------------  comparator here
+    -- --------------------------  |
+    -- --------------------------  V
+    vsel := this.ffv(vtoi(a.a(CACHE_INDEX_MSB downto 5)));
+    if(((this.aen_del1 = '1') and (ra.tag0 = to_cache_tag(this.a_prev.a))) or
+       ((this.aen_del1 = '0') and (this.c_hitstate = '1'))) and
+      (vsel= '1') then                                 cachehit := '1';
+    else                                               cachehit := '0'; end if;
+    cachehit_s                                      <= cachehit;
+
+    -- cachehit (fill state) (during fill, different index)
+    -- ------------ unneceaary logic, coded by viewpoint of logic correctness
+    -- ------------ and performance check
+    if(((this.aen_del1 = '1') and (ra.tag0 = to_cache_tag(this.a_prev.a))) or
+       ((this.aen_del1 = '0') and (this.c_hitstate = '1'))) and
+      (vsel= '1') and
+      (this.state = RMISS3) and
+      (to_cache_index(a.a) /= to_cache_index(this.ma0)) then
+                                              cachehit_dur_fill := '1';
+    else                                      cachehit_dur_fill := '0'; end if;
+    cachehit_dur_fill_s                    <= cachehit_dur_fill;
+
+    -- ------------------------------------------------------------------------
+    -- create hit check (depending on state) and cpu ack
+    -- ---------- caution : combinational output
+    -- ------------------------------------------------------------------------
+    if(this.dc_onm = '1') then
+         y.ack        <=  y_ack_beforet_i1 or
+                          y_ack_beforet_i2 or
+                         (y_ack_beforet_d and cachehit);
+    else y.ack        <=  y_ack_off;
+    end if;
+
+    -- ------------------------------------------------------------------------
+    -- create hit check, (snoop)
+    -- ------------------------------------------------------------------------
+    if(this.sa_al(CACHE_REGION_WIDTH-CACHE_LINE_WIDTH_BITS-1 downto
+                  CACHE_INDEX_BITS)                  = ra.tag1 ) and
+                                     -- if default param, 23 bit comparator
+      (this.sa_en_state = '1') and
+      (this.ry_twr = '0') -- tag ram is in read cycle
+                          then      cachehit_snoop := '1';
+    else                            cachehit_snoop := '0';
+    end if;
+    cachehit_snoop_s             <= cachehit_snoop;
+
+    -- ------------------------------------------------------------------------ 
+    -- state machine
+    -- ------------------------------------------------------------------------ 
+    if(this.dc_onm = '1') then
+      case this.state is
+      when IDLE  =>
+        -- transition from IDLE en=1 start - - - - - - - - - - - - - - - - - - 
+        if(a.en = '1') then
+          if(a.wr = '0') then
+            if(a_lock = '1') and
+              (adrs_equcacheli = '1') then nx.state := RLOCK1;
+            elsif(a_lock = '0') and
+              (adrs_equcacheli = '1') and
+              (cachehit = '0') then        nx.state := RMISS1;
+            else                           nx.state := IDLE; end if;
+                     -- note: if adrs_equcacheli = '0',no information on
+                     -- ----- hit/miss.  The state can not move to rmiss1.
+                     -- ----- reading tag and wait next cycle judgement
+          else
+            if(a_lock = '1') and
+              (adrs_equcacheli = '1') then nx.state := WUNCA1;
+            elsif(a_lock = '0') and
+              (adrs_equcacheli = '1') then
+              if(cachehit = '0') then      nx.state := WMISS1;
+              else                         nx.state := SB1; end if;
+            else                           nx.state := IDLE; end if;
+          end if; -- end of if(a.wr = '0'
+        -- transition from IDLE en=1 end - - - - - - - - - - - - - - - - - - -
+        -- transition from IDLE en=0 start - - - - - - - - - - - - - - - - - -
+        else          --  -> a.en = '0'
+          if((a_lock = '0') and
+             (this.memlock_state = '1')) then
+                                           nx.state := NEGLCK;
+          else                             nx.state := IDLE; end if;
+        end if; -- end of if(a.en = '1'
+        -- transition from IDLE en=0 end - - - - - - - - - - - - - - - - - - -
+      when SB1 =>
+        if(mem_trans_ack = '1') then       nx.state := IDLE;
+        else                               nx.state := SB2; end if;
+      when SB2 =>
+        if(mem_trans_ack = '1') then
+          if(ctrl.en /= this.dc_onm) then nx.state := IDLE;
+          elsif(a.en = '1') and (a.wr = '1') and
+            (adrs_equcacheli = '1') then
+            if(cachehit = '0') then        nx.state := WMISS1;
+            else                           nx.state := SB1; end if;
+          else                             nx.state := IDLE; end if;
+        else                               nx.state := SB2; end if;
+      when RMISS1 =>                       nx.state := RMISS2;
+      when RMISS2 =>
+        if (this.b2en_r = '1') and (mtoc.b2enr = '0') then
+                                           nx.state := RMISS3;
+        elsif(mem_trans_ack = '1') then    nx.state := IDLE;
+        else                               nx.state := RMISS2; end if;
+      when WMISS1 =>                       nx.state := WMISS2;
+      when WMISS2 =>
+        if(mem_trans_ack = '1') then       nx.state := IDLE;
+        else                               nx.state := WMISS2; end if;
+      when OFF1 =>                         nx.state := IDLE; -- never happen
+      when OFF2 =>                         nx.state := IDLE; -- never happen
+      when RLOCK1 =>                       nx.state := RLOCK2;
+      when RLOCK2 =>
+        if(mem_trans_ack = '1') then           nx.state := IDLE;
+        else                               nx.state := RLOCK2; end if;
+      when WUNCA1 =>                       nx.state := WUNCA2;
+      when WUNCA2 =>
+        if(mem_trans_ack = '1') then           nx.state := IDLE;
+        else                               nx.state := WUNCA2; end if;
+      when NEGLCK =>
+        if(mem_trans_ack = '1') then       nx.state := IDLE;
+        else                               nx.state := NEGLCK; end if;
+      when others => -- for RMISS3
+        if(mem_trans_ack = '1') then       nx.state := IDLE;
+        else                               nx.state := RMISS3;
+        end if;
+      end case;
+    else                                        -- cache off mode
+      case this.state is
+      when IDLE  =>
+        if(a.en = '1') then                nx.state := OFF1;
+        elsif((a_lock = '0') and
+              (this.memlock_state = '1')) then
+                                           nx.state := NEGLCK;
+        else                               nx.state := IDLE; end if;
+      when OFF1  =>                        nx.state := OFF2;
+      when OFF2  =>
+        if(mem_trans_ack = '1') then       nx.state := IDLE;
+        else                               nx.state := OFF2; end if;
+      when NEGLCK =>
+        if(mem_trans_ack = '1') then       nx.state := IDLE;
+        else                               nx.state := NEGLCK; end if;
+      when others =>                       nx.state := IDLE; -- never happen
+      end case;
+    end if;
+    -- ------------------------------------------------------------------------ 
+
+    if(this.dc_onm = '0') or (this.dc_inv = '1') then
+                                     nx.c_hitstate := '0';
+    elsif(a.en = '1') then           nx.c_hitstate := cachehit;
+    else                             nx.c_hitstate := this.c_hitstate; end if;
+    -- ------------------------------------------------------------------------ 
+    if(this.state = RLOCK1) or
+      ((this.state = OFF1) and (a.wr = '0') and (a_lock = '1')) then
+                                nx.memlock_state := '1';
+    elsif(a_lock = '0') or                                 -- negate lock
+         ((a.en = '1') and (a.wr = '1')) then              -- any write access
+                                nx.memlock_state := '0';
+    else                        nx.memlock_state := this.memlock_state; end if;
+    -- ------------------------------------------------------------------------ 
+
+    -- ic on/off state
+    if(ctrl.en /= this.dc_onm) and (nx.state = IDLE) then
+                                          nx.dc_onm := ctrl.en;
+    else                                  nx.dc_onm := this.dc_onm; end if;
+    -- ------------------------------------------------------------------------ 
+    case nx.state is
+      when SB1 | WMISS1 | WUNCA1 | OFF1 =>
+                      nx.saout_al1 :=
+                        a.a(CACHE_REGION_WIDTH-1 downto CACHE_LINE_WIDTH_BITS);
+      when others =>  nx.saout_al1 := this.saout_al1;
+    end case;
+
+    -- late, combinatorial output (generally not recommnded, but do it for
+    --        1clock latancy)
+    -- ------------------------------------------------------------------------ 
+    case a.we is
+      when b"1111" =>             sz := b"10";
+      when b"0011" | b"1100" =>   sz := b"01";
+      when others =>              sz := b"00";
+    end case;
+
+    case nx.state is
+    when RMISS1 =>        ctom_cmd := CACHE_DCMD_READMISS   ;
+    when OFF1   =>
+      if(a.wr = '1') then ctom_cmd := CACHE_DCMD_WRITESGL_SL;
+      elsif(a_lock = '1') then
+                          ctom_cmd := CACHE_DCMD_READSGL_LO ;
+      else                ctom_cmd := CACHE_DCMD_READSGL_NM ; end if;
+    when WMISS1 =>        ctom_cmd := CACHE_DCMD_WRITEMISS  ;
+    when SB1    =>        ctom_cmd := CACHE_DCMD_WRITESGL_FA;
+    when RLOCK1 =>        ctom_cmd := CACHE_DCMD_READSGL_LO ;
+    when WUNCA1 =>        ctom_cmd := CACHE_DCMD_WRITESGL_SL;
+    when NEGLCK =>
+      if(this.state = IDLE) then
+                          ctom_cmd := CACHE_DCMD_NEGATE_LO;
+      else                ctom_cmd := b"000"; end if;
+    when others =>        ctom_cmd := b"000";
+    end case;
+
+    -- initial value (for     OFF1, WMISS1, SB1, RLOCK1, WUNCA1) --------------
+        ctom.b0d  <= ctom_cmd & sz & a.a(27 downto 0) & a.d;
+    -- initial value (for     OFF1,         SB1, RLOCK1, WUNCA1, NEGLCK) ------
+        ctom.b2en <= '0';
+
+    -- combinational main
+    case nx.state is
+    when RMISS1 => ctom.b2en <= '1';
+               ctom.b0d(61 downto 0) <= b"00" & a.a(27 downto 0) & x"00000000";
+    when WMISS1 => ctom.b2en <= '1';
+    when NEGLCK =>
+      if(this.state = IDLE) then
+               ctom.b0d(61 downto 0) <= b"00" & a.a(27 downto 0) & x"00000000";
+      end if;
+    when others => 
+    end case;
+
+    -- b0en, b30en, b31en
+    -- initial value start
+                                nx.sabank_send :=     this.sabank_send;
+                                    ctom_b3en := "00";
+    -- initial value end
+    case nx.state is
+    when RMISS1 | OFF1 | WMISS1 | SB1 | RLOCK1 | WUNCA1 =>
+                                ctom_b0en := '1';
+      if(a.wr = '1') then
+                                nx.sabank_send := not this.sabank_send;
+        if (this.sabank_send = '0') then   
+                                    ctom_b3en := "10";
+        else                        ctom_b3en := "01"; end if;
+                               -- this.sabank_send will switch next cycle,
+                               --  so this.bank=0 <-> b3en(1)=0 
+                               --  so this.bank=1 <-> b3en(0)=0 
+      end if;
+    when NEGLCK =>
+      if(this.state = IDLE) then ctom_b0en := '1';
+      else                      ctom_b0en := '0'; end if;
+    when others =>              ctom_b0en := '0';
+    end case;
+    ctom.b0en <=                ctom_b0en;
+    ctom.b30en <=                   ctom_b3en(0);
+    ctom.b31en <=                   ctom_b3en(1);
+
+    -- ------------------------------------------------------------------------ 
+    -- FF next data
+    -- ------------------------------------------------------------------------ 
+    -- valid bit for a_prev (value zero after power-on and cache miss)
+    if(this.dc_onm = '0') or
+      ((this.state = RMISS3) and (this.state_del1 = RMISS2)) or
+      (this.state = WMISS1) or
+      (cachehit_snoop = '1') or
+      ((mem_trans_ack = '1') and
+       ((this.state = RLOCK2) or (this.state =  WUNCA2))) then
+                                 nx.a_prev_v := '0';
+    elsif(a.en = '1') then       nx.a_prev_v := '1';
+    else                         nx.a_prev_v := this.a_prev_v; end if;
+
+    if(a.en = '1') then          nx.a_prev := a;
+    else                         nx.a_prev := this.a_prev; end if;
+
+    if(nx.state = RMISS1) or
+      (nx.state = WMISS1) or
+      (nx.state = RLOCK1) then   nx.ma0 := a.a(27 downto 0);
+    else                         nx.ma0 := this.ma0; end if;
+  
+    if(this.aenrd_del1 = '1') and (this.ry_en0 = '1') then
+                                 nx.dw  :=   ra.d0;
+    else                         nx.dw  := this.dw; end if;
+
+    -- set one FF v
+         nx.ffv := this.ffv; -- initial value
+    if(this.dc_onm = '0') or (this.dc_inv = '1') then
+         nx.ffv := (others => '0');
+    else
+      case this.state is
+      when RMISS1 | WMISS1 =>
+         nx.ffv(vtoi(this.ma0       (CACHE_INDEX_MSB    downto 5))) := '1';
+      when RLOCK1 =>
+         nx.ffv(vtoi(this.ma0       (CACHE_INDEX_MSB    downto 5))) := '0';
+      when others =>
+      end case;
+
+      if(cachehit_snoop = '1') then
+         nx.ffv(vtoi(this.sa_al(CACHE_INDEX_BITS-1 downto 0))) := '0';
+      end if; -- two if( ) both hit, the logic is selected '0' is dominant
+    end if;
+
+    -- create nx.sa_al
+    if(sa.en = '1') then nx.sa_al := sa.al;
+    else                 nx.sa_al := this.sa_al; end if;
+
+    -- create nx.sa_en_state
+    if(sa.en = '1') or
+      ((this.sa_en_state = '1') and (this.ry_twr = '1')) then
+                         nx.sa_en_state := '1';
+    else                 nx.sa_en_state := '0'; end if;
+
+    -- ------------------------------------------------------------------------ 
+    -- ff substitution (this-this type)
+    this.state_del1  := this.state;
+    this.dc_inv      := ctrl.inv;
+    if(this.sabank_send = '0') then
+         this.saout_al2a   := this.saout_al1;
+    else this.saout_al2b   := this.saout_al1; end if;
+
+    -- ff substitution (input signal type)
+    this.rfillv      := mtoc.b0enr;
+    this.aen_del1    := a.en and (not a_lock);
+    this.aenrd_del1  := a.en and (not a.wr);
+    this.b2en_r      := mtoc.b2enr;
+    this.b3en_r      := mtoc.b31enr & mtoc.b30enr;
+
+    -- ff substitution (nx type)
+    this.state       := nx.state;
+    this.c_hitstate  := nx.c_hitstate;
+    this.memlock_state  := nx.memlock_state;
+    this.ta0         := nx.ta0;
+    this.dw          := nx.dw;
+    this.pref_inc    := nx.pref_inc;
+    this.ma0         := nx.ma0;
+    this.a_prev      := nx.a_prev;
+    this.a_prev_v    := nx.a_prev_v;
+    this.saout_al1   := nx.saout_al1;
+    this.sabank_send := nx.sabank_send;
+    this.sabank_rcv  := nx.sabank_rcv;
+    this.sa_al       := nx.sa_al;
+    this.sa_en_state  := nx.sa_en_state;
+    this.ry_twr      := nx.ry_twr;
+    this.ry_en0      := nx.ry_en0;
+    this.ffv         := nx.ffv;
+    this.dc_onm      := nx.dc_onm;
+    -- ------------------------------------------------------------------------ 
+
+  end process;
+
+  -- --------------------------------------------------------------------------
+  -- output signal
+  -- --------------------------------------------------------------------------
+  -- tag and ram address signals --------------------------------------------
+  ry_ccl.a0(CACHE_LINE_WIDTH_BITS+CACHE_INDEX_BITS-CACHE_MEM_WIDTH_BITS-1
+    downto 3) <= a.a(CACHE_INDEX_MSB downto 5);
+  ry_ccl.d0   <= a.d;
+
+  -- note :   lower bits "ry_ccl.a0"(2 downto 0) is generated in process block
+  -- -------- to genarate +2 mod 32
+
+  -- tag ram       control signals --------------------------------------------
+  ry_ccl.ten0 <= '1';
+  ry_ccl.tag0 <= this'register.ma0 (27 downto 
+                                   CACHE_LINE_WIDTH_BITS+CACHE_INDEX_BITS);
+
+end beh;

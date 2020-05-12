@@ -1,0 +1,395 @@
+library ieee;
+use ieee.std_logic_1164.all;
+use ieee.numeric_std.all;
+
+use work.cache_pack.all;
+
+entity icache_ccl is port (
+   clk    : in std_logic; -- cpu clock, 125MHz
+   rst    : in std_logic;
+   -- Cache RAM port
+   ra     : in icache_ram_o_t;
+   ry_ccl : out icache_ramccl_i_t;
+   -- CPU port
+   a       : in icache_i_t;
+   y       : out icache_o_t;
+   -- Cclk Mclk if
+   ctom  : out ctom_t;
+   mtoc  : in  mtoc_t;
+   -- ic on/off mode
+   icccra : in icccr_i_t);
+end icache_ccl;
+
+architecture beh of icache_ccl is
+
+  register variable this : icacheccl_reg_t reset := ICACHECCLK_REG_RESET;
+
+  signal adrs_seqequ_s          : std_logic;
+  signal fillline_hit_s         : std_logic;
+  signal cachehit_s             : std_logic;
+  signal cachehit_dur_fill_s    : std_logic;
+  signal remain_wv_observe1     : std_logic_vector(7 downto 0);
+  signal remain_wv_observe2     : std_logic_vector(7 downto 0);
+
+begin
+  p0 : process(ra,a,mtoc,icccra,this)
+    register this when clk = '1' and clk'event reset when rst = '1';
+
+  -- ---------------------------------------------------------------------------
+  -- variables
+  -- ---------------------------------------------------------------------------
+  variable nx                : icacheccl_reg_t;
+  variable vsel              : std_logic;
+  variable cachehit          : std_logic;
+  variable fillline_hit      : std_logic;
+  variable cachehit_dur_fill : std_logic;
+  variable wvsel             : std_logic;
+  variable adrs_equcacheli   : std_logic; -- a.a and prev a.a are on same cache
+                                -- line
+  variable adrs_seqequ       : std_logic; -- a.a and prev a.a (on prev valid 
+                                --  cycle) is relation of (equal) or
+                                --  (a = prev.a + 2 within 32Byte)
+  variable y_ack_beforet_i   : std_logic; -- y.ack before tag, independent
+                                --           (independent of cachehit)
+  variable y_ack_beforet_d   : std_logic; -- y.ack before tag,   dependent
+                                --           (  dependent of cachehit)
+  variable y_ack_off         : std_logic;
+  -- ---------------------------------------------------------------------------
+
+  begin -- begin of process ( )
+
+    -- cpu return data (note: y.ack is combinatorial)
+    if(this.ic_onm = '1') then
+      if(this.state = MISS2) or (this.state = MISS3) then
+        if(a.a(4 downto 1) = this.ma0(4 downto 1)) then
+           y.d        <= this.cd1(31 downto 16);
+        else
+           y.d        <= this.cd1(15 downto  0);
+        end if;
+      elsif(this.aen_del1 = '1') and (this.ry_en0 = '1') then
+           y.d        <= to_cache_idata (a.a, ra.d0);
+      else y.d        <= to_cache_idata (a.a, this.dw); end if;
+    else   y.d        <= mtoc.rfilld(15 downto 0);              -- ic off
+    end if;
+
+    -- ------------------------------------------------------------------------
+    -- address sequece locates on same cache line
+    -- ------------------------------------------------------------------------
+    if(this.a_prev.a(27 downto 5) = a.a(27 downto 5)) and
+      (this.a_prev_v = '1') then                 adrs_equcacheli := '1';
+    else                                         adrs_equcacheli := '0'; end if;
+
+    -- ------------------------------------------------------------------------
+    -- address sequential
+    -- spec if  (newadr = prevadr + 0) or
+    --          ((newadr = prevadr + 2 (mod 32)) and (newadr(4:0) not equals 0))
+    --        sequential_cond = 1
+    -- 
+    -- -------- basic but exceptional treatment :
+    -- --------   if this.pref_inc = 1 and this.a(1) = 1 sequential_cond = 0 
+    -- --------   i.e. 4n+2 req -> 4n+2 req condition ((pref. for prefetch 
+    -- --------   effect, output are D(4n+4), D(4n+6))
+    -- ------------------------------------------------------------------------
+
+    if(  this.pref_inc = '1') and (a.a(1) = '1') then
+                                                    adrs_seqequ := '0';
+    elsif
+      (  adrs_equcacheli = '1') and
+      (((std_logic_vector(unsigned(this.a_prev.a(4 downto 1)) + 1) = 
+          a.a(4 downto 1)) and
+         (a.a(4 downto 1) /= b"0000")) or
+       (  this.a_prev.a(4 downto 1) = a.a(4 downto 1))) then
+                                                    adrs_seqequ := '1';
+    else                                            adrs_seqequ := '0'; end if;
+    adrs_seqequ_s                                <= adrs_seqequ;
+
+    -- fillline_hit -----------------------------------------------------------
+    -- -------- address comparator (between cpu address and miss addrss)
+    -- -------- with valid bit check
+    if(this.mvbank = '1') then
+         wvsel := mtoc.v(vtoi(a.a(4 downto 2)) + 0);
+    else wvsel := mtoc.v(vtoi(a.a(4 downto 2)) + 8); end if;
+  
+    if(a.a(27 downto 5) = this.ma0(27 downto 5)) and
+      ((a.a(4 downto 1) = this.ma0(4 downto 1)) or
+       (a.a(4 downto 1) =
+                    std_logic_vector(unsigned(this.ma0(4 downto 1)) + 1))) and
+      (wvsel = '1') then                           fillline_hit := '1';
+    else                                           fillline_hit := '0'; end if;
+    fillline_hit_s                              <= fillline_hit;
+
+    -- y.ack generating conditions
+    -- initial value ----------------------------------------------------------
+                     y_ack_beforet_i := '0'; -- initial
+                     y_ack_beforet_d := '0'; -- initial
+    if(a.en = '1') then
+      case this.state is
+      -- part 1 ---------------------------------------------------------------
+      when IDLE =>
+      if (adrs_seqequ = '1') then        -- hit cache line and data ready
+                     y_ack_beforet_d := '1'; end if;
+      -- part 2 ---------------------------------------------------------------
+      when MISS2 =>
+      if (fillline_hit = '1') then       -- hit fill line
+                     y_ack_beforet_i := '1'; end if;
+      -- part 3 ---------------------------------------------------------------
+      when MISS3 =>
+      if (adrs_seqequ = '1') and
+         (fillline_hit = '1') then       -- hit fill line
+                     y_ack_beforet_i := '1';
+        -- part 4 -------------------------------------------------------------
+      elsif (adrs_seqequ = '1') and
+            (to_cache_index(a.a) /= to_cache_index(this.ma0)) then
+                     y_ack_beforet_d := '0';
+                                         -- hit another cache line during fill
+      end if;
+      -- part 1-4 end ---------------------------------------------------------
+      when others =>                     -- no possibility of ack (MISS1)
+      end case;
+    end if;
+
+    if((y_ack_beforet_i = '1') or ( y_ack_beforet_d = '1')) and
+      (a.a(1) = '1') then ry_ccl.a0(2  downto 0) <= 
+                               std_logic_vector(unsigned(a.a(4 downto 2)) + 1);
+    else                  ry_ccl.a0(2  downto 0) <=      a.a(4 downto 2);
+    end if;
+    -- --------- note: upper bits 
+    -- ---------         "ry_ccl.a0"(@@ downto 3), (for the 8kB case,
+    -- ---------         "ry_ccl.a0"(10 downto 3)) is generated outside of 
+    -- ---------         process block.  see at the bottom of the file
+
+    -- prefetch 1 bit state (indicator, rather than state) --
+    if(this.ic_onm = '0') or (this.state = MISS3) then
+                             nx.pref_inc := '0';
+    elsif(a.en = '0') then   nx.pref_inc := this.pref_inc; -- keep when no en
+    elsif((y_ack_beforet_i = '1') or ( y_ack_beforet_d = '1')) and
+         (a.a(1) = '1') then nx.pref_inc := '1';
+    else                     nx.pref_inc := '0';
+    end if;
+
+    -- ry_ccl.en0 (cache ram enable control) ----------------------------------
+    -- -------- power reduction control is coded with symmetric form of
+    -- -------- prefetch, the difference is a.a(1) = 1/0
+    if(this.ic_onm = '1') then
+      case this.state is
+      when MISS1 =>           nx.ry_en0 := '0';
+      when MISS2 =>
+        if(fillline_hit = '0') and
+          (this.rfillv = '1') and (mtoc.rfillv = '0') then
+                              nx.ry_en0 := '1';
+        else                  nx.ry_en0 := '0'; end if;
+      when MISS3 =>
+        if(this.rfillv = '1') and (mtoc.rfillv = '0') then
+                              nx.ry_en0 := '1';
+        else                  nx.ry_en0 := '0'; end if;
+      when others =>
+        if((y_ack_beforet_i = '1') or( y_ack_beforet_d = '1')) and
+          (a.a(1) = '0') then nx.ry_en0 := '0';
+        else                  nx.ry_en0 := '1'; end if;
+      end case;
+    else                      nx.ry_en0 := '0'; -- power reduction on ic off
+    end if;
+    ry_ccl.en0             <= nx.ry_en0;
+
+    -- ------------------------------------------------------------------------
+    -- -------- tag ram access timing separator on RTL
+    -- --------   logic that depends tag ram output starts here
+    -- ------------------------------------------------------------------------
+
+    -- ------------------------------------------------------------------------
+    -- create hit check and cpu ack.
+    -- note :  "_s" suffix "signals" - not variable - are obervation signals
+    -- ------------------------------------------------------------------------
+    -- cachehit comparator & cachehit condition
+    -- --------------------------  comparator here
+    -- --------------------------  |
+    -- --------------------------  V
+    vsel := this.ffv(vtoi(a.a(CACHE_INDEX_MSB downto 5)));
+    if(((this.aen_del1 = '1') and (ra.tag = to_cache_tag(this.a_prev.a))) or
+       ((this.aen_del1 = '0') and (this.c_hitstate = '1'))) and
+      (vsel= '1') then                                 cachehit := '1';
+    else                                               cachehit := '0'; end if;
+    cachehit_s                                      <= cachehit;
+
+    -- cachehit (fill state) (during fill, different index)
+    -- ------------ unneceaary logic, coded by viewpoint of logic correctness
+    -- ------------ and performance check
+    if(((this.aen_del1 = '1') and (ra.tag = to_cache_tag(this.a_prev.a))) or
+       ((this.aen_del1 = '0') and (this.c_hitstate = '1'))) and
+      (vsel= '1') and
+      (this.state = MISS3) and
+      (to_cache_index(a.a) /= to_cache_index(this.ma0)) then
+                                              cachehit_dur_fill := '1';
+    else                                      cachehit_dur_fill := '0'; end if;
+    cachehit_dur_fill_s                    <= cachehit_dur_fill;
+
+    -- ------------------------------------------------------------------------
+    -- observation logic (wv remaining), not a actual logic
+    -- ------------------------------------------------------------------------
+    if(this.state = MISS1) then
+      if(this.mvbank = '1') then
+                             remain_wv_observe1 <= mtoc.v(15 downto 8);
+      else                   remain_wv_observe1 <= mtoc.v( 7 downto 0); end if;
+    else                     remain_wv_observe1 <= x"00"; end if;
+    if(this.state = MISS2) then
+      if(this.mvbank = '1') then
+                             remain_wv_observe2 <= mtoc.v(15 downto 8);
+      else                   remain_wv_observe2 <= mtoc.v( 7 downto 0); end if;
+    else                     remain_wv_observe2 <= x"00"; end if;
+
+    -- ------------------------------------------------------------------------
+    -- create hit check (depending on state) and cpu ack
+    -- ---------- caution : combinational output
+    -- ------------------------------------------------------------------------
+    y_ack_off := (not mtoc.rfillv) and this.rfillv;
+
+    if(this.ic_onm = '1') then
+         y.ack <=  y_ack_beforet_i or
+                  (y_ack_beforet_d and cachehit);
+    else y.ack <=  y_ack_off;
+    end if;
+
+    -- ------------------------------------------------------------------------ 
+    -- state machine
+    -- ------------------------------------------------------------------------ 
+    if(this.ic_onm = '1') then
+      case this.state is
+      when IDLE  =>
+        if(a.en = '1') and
+          (adrs_equcacheli = '1') and
+          (cachehit = '0') then           nx.state := MISS1;
+        else                              nx.state := IDLE;
+                     -- note: if adrs_equcacheli = '0',no information on
+                     -- ----- hit/miss.  The state can not move to miss1.
+                     -- ----- reading tag and wait next cycle judgement
+  
+        end if;
+      when MISS1 =>                       nx.state := MISS2;
+      when MISS2 =>
+        if(fillline_hit = '1') then       nx.state := MISS3;
+        elsif(this.rfillv = '1') and (mtoc.rfillv = '0') then
+                                          nx.state := IDLE;
+        else                              nx.state := MISS2; end if;
+      when OFF1 =>                        nx.state := IDLE; -- never happen
+      when OFF2 =>                        nx.state := IDLE; -- never happen
+      when others =>
+        if(this.rfillv = '1') and (mtoc.rfillv = '0') then
+                                          nx.state := IDLE;
+                     -- note: if adrs_equcacheli = '0',no information on
+                     -- ----- hit/miss.  The state can not move to miss1.
+                     -- ----- reading tag and wait next cycle judgement
+        else                              nx.state := MISS3;
+        end if;
+      end case;
+    else                                        -- cache off mode
+      case this.state is
+      when IDLE  =>
+        if(a.en = '1') then               nx.state := OFF1;
+        else                              nx.state := IDLE; end if;
+      when OFF1  =>                       nx.state := OFF2;
+      when OFF2  =>
+        if(y_ack_off = '1') then          nx.state := IDLE;
+        else                              nx.state := OFF2; end if;
+      when others =>                      nx.state := IDLE; -- never happen
+      end case;
+    end if;
+    -- ------------------------------------------------------------------------ 
+
+    if(this.ic_onm = '0') or (this.ic_inv = '1') then
+                                     nx.c_hitstate := '0';
+    elsif(a.en = '1') then           nx.c_hitstate := cachehit;
+    else                             nx.c_hitstate := this.c_hitstate; end if;
+    -- ------------------------------------------------------------------------ 
+
+    -- ic on/off state
+    if(icccra.ic_onm /= this.ic_onm) and (nx.state = IDLE) then
+                                          nx.ic_onm := icccra.ic_onm;
+    else                                  nx.ic_onm :=   this.ic_onm; end if;
+
+    -- late, combinatorial output (generally not recommnded, but do it for
+    --        1clock latancy)
+    -- ------------------------------------------------------------------------ 
+    if(nx.state = MISS1) or (nx.state = OFF1) then
+          ctom.fillv <= '1';
+          ctom.filla <= this.ic_onm & a.a(27 downto 1) & this.mvbank;
+          nx.mvbank  := not this.mvbank;
+    else  ctom.fillv <= '0';
+          ctom.filla <= '0' & x"0000000";
+          nx.mvbank  :=     this.mvbank; end if;
+  
+    if(this.state = MISS1) then             nx.ry_twr := '1';
+    else                                    nx.ry_twr := '0'; end if;
+    ry_ccl.twr                           <= nx.ry_twr;
+
+    -- ------------------------------------------------------------------------ 
+    -- FF next data
+    -- ------------------------------------------------------------------------ 
+    -- valid bit for a_prev (value zero only once after power-on)
+    if(this.ic_onm = '0') or (this.state = MISS3) then
+                                 nx.a_prev_v := '0';
+    elsif(a.en = '1') then       nx.a_prev_v := '1';
+    else                         nx.a_prev_v := this.a_prev_v; end if;
+
+    if(a.en = '1') then          nx.a_prev := a;
+    else                         nx.a_prev := this.a_prev; end if;
+
+    if(nx.state = MISS1) then    nx.ma0 := a.a;
+    else                         nx.ma0 := this.ma0; end if;
+  
+    if(this.aen_del1 = '1') and (this.ry_en0 = '1') then
+                                 nx.dw  :=   ra.d0;
+    else                         nx.dw  := this.dw; end if;
+
+    -- set one FF v
+                       nx.ffv := this.ffv; -- initial value
+    if(this.ic_onm = '0') or (this.ic_inv = '1') then
+                       nx.ffv := (others => '0');
+    elsif(this.state = MISS1) then
+                       nx.ffv(vtoi(this.ma0(CACHE_INDEX_MSB downto 5))) := '1';
+    end if;
+
+    -- ------------------------------------------------------------------------ 
+    -- ff substitution (input signal type)
+    this.cd1         := this.cd0;
+
+    -- ff substitution (input signal type)
+    this.rfillv      := mtoc.rfillv;
+    this.aen_del1    := a.en;
+    this.cd0         := mtoc.cd;
+    this.ic_onmprep  := icccra.ic_onm;
+    this.ic_inv      := icccra.ic_inv;
+
+    -- ff substitution (nx type)
+    this.state       := nx.state;
+    this.c_hitstate  := nx.c_hitstate;
+    this.dw          := nx.dw;
+    this.pref_inc    := nx.pref_inc;
+    this.ma0         := nx.ma0;
+    this.a_prev      := nx.a_prev;
+    this.a_prev_v    := nx.a_prev_v;
+    this.ry_twr      := nx.ry_twr;
+    this.ry_en0      := nx.ry_en0;
+    this.ffv         := nx.ffv;
+    this.mvbank      := nx.mvbank;
+    this.ic_onm      := nx.ic_onm;
+    -- ------------------------------------------------------------------------ 
+
+  end process;
+
+  -- --------------------------------------------------------------------------
+  -- output signal
+  -- --------------------------------------------------------------------------
+  -- tag and ram address signals --------------------------------------------
+  ry_ccl.a0(CACHE_LINE_WIDTH_BITS+CACHE_INDEX_BITS-CACHE_MEM_WIDTH_BITS-1
+    downto 3) <= a.a(CACHE_INDEX_MSB downto 5);
+  ry_ccl.ta   <= a.a(CACHE_INDEX_MSB downto 5);
+
+  -- note :   lower bits "ry_ccl.a0"(2 downto 0) is generated in process block
+  -- -------- to genarate +2 mod 32
+
+  -- tag ram       control signals --------------------------------------------
+  ry_ccl.ten <= '1';
+  ry_ccl.tag <= this'register.ma0 (27 downto 
+                                   CACHE_LINE_WIDTH_BITS+CACHE_INDEX_BITS);
+
+end beh;

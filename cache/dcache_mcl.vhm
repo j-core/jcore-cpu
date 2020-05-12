@@ -1,0 +1,416 @@
+library ieee;
+use ieee.std_logic_1164.all;
+use ieee.numeric_std.all;
+
+use work.cache_pack.all;
+
+entity dcache_mcl is port (
+   clk    : in std_logic; -- mem clock, 200MHz
+   rst    : in std_logic;
+   -- Cache RAM port
+   ry_mcl : out dcache_rammcl_i_t;
+   -- DDR memory port
+   ma  : in  mem_i_t;
+   my  : out mem_o_t;
+   -- Cclk Mclk if
+   ctom  : in  ctom_dc_t;
+   mtoc  : out mtoc_dc_t);
+end dcache_mcl;
+
+architecture beh of dcache_mcl is
+
+  register variable this : dcachemcl_reg_t reset := DCACHEMCLK_REG_RESET;
+
+  signal ctom_cmd           : std_logic_vector(2 downto 0);
+  signal sbout_cmd_s        : std_logic_vector(2 downto 0);
+  signal sbout_en1_sig      : std_logic;
+
+begin
+
+  p0 : process(ma,ctom,this)
+    register this when clk = '1' and clk'event reset when rst = '1';
+
+  variable nx               : dcachemcl_reg_t;
+  variable sbout            : mem_o_t;
+  variable sbout_cmd        : std_logic_vector(2 downto 0);
+  variable sbout_en1        : std_logic;
+  variable sbout_en1w       : std_logic;
+  variable cw_last          : std_logic;
+  variable ma_ack_g         : std_logic; -- ma.ack with gap_effect
+                            -- mask spec -> see code
+
+  begin -- begin of process ( )
+
+    -- ctom -> sb -------------------------------------------------------------
+    -- -- address
+    sbout.a         := ctom.b0d(59 downto 32);
+    -- -- enable 1 cycle shot
+    if(this.statemcl = IDLE) and
+      (((ctom.b0en = '0') and (this.fillv_del1 = '1')) or
+        (this.sbblknxst = '1')) then sbout_en1 := '1';
+    else                             sbout_en1 := '0'; end if;
+
+    sbout_en1_sig <= sbout_en1;
+
+    -- -- enable
+    sbout.en        := not(ctom.b0en);
+    -- -- command oc on/off (command related), write data
+    if(this.sbbufin = '1') then 
+      if(this.statemcl = WTHI) then
+                                sbout_cmd := CACHE_DCMD_WRITESGL_FA;
+      else                      sbout_cmd := CACHE_DCMD_WRITESGL_SL; end if;
+    else                        sbout_cmd := ctom.b0d(64 downto 62);
+    end if;
+    if(this.sbbufin_2 = '1') then 
+                                sbout.d   := this.sbdata;
+    else                        sbout.d   := ctom.b0d(31 downto  0);
+    end if;
+    sbout_cmd_s              <= sbout_cmd;
+
+    -- -- sbout_en1 (write)
+    -- all ddr write condition is sbout_en1w and wmiss BR-then-WTHA
+    if(sbout_en1 = '1') then
+      case sbout_cmd is
+      when CACHE_DCMD_WRITESGL_SL |
+           CACHE_DCMD_NEGATE_LO   |
+           CACHE_DCMD_WRITESGL_FA =>  sbout_en1w := '1';
+      when others =>                  sbout_en1w := '0';
+      end case;
+    else                              sbout_en1w := '0';
+    end if;
+
+    -- output signal (memory port)
+    my.d                     <= sbout.d;
+    -- -- write enable
+    if(sbout_cmd = CACHE_DCMD_WRITESGL_FA) or
+      (sbout_cmd = CACHE_DCMD_WRITESGL_SL) or
+      (sbout_cmd = CACHE_DCMD_WRITEMISS) then
+      case ctom.b0d(61 downto 60) is
+      when b"00" =>                        -- 1-byte
+        case ctom.b0d(33 downto 32) is
+          when b"00"  => sbout.we := "1000";
+          when b"01"  => sbout.we := "0100";
+          when b"10"  => sbout.we := "0010";
+          when others => sbout.we := "0001";
+        end case;
+      when b"01" =>      sbout.we :=       -- 2-byte
+                           (not ctom.b0d(33)) & (not ctom.b0d(33)) &
+                                ctom.b0d(33)  &      ctom.b0d(33);
+      when others =>     sbout.we := x"f"; -- 4-byte
+      end case;
+    else                 sbout.we := x"0";
+    end if;
+    -- -- sb flag state (block next request "en1" state )
+    if(ctom.b0en = '0') and (this.fillv_del1 = '1') and
+      (this.statemcl /= IDLE) then   nx.sbblknxst := '1';
+    elsif(this.statemcl = IDLE) then nx.sbblknxst := '0';
+    else                             nx.sbblknxst := this.sbblknxst;
+    end if;
+    --  ---
+
+--  if(nx.dc_onm = '1') and -- to transfer onm same time as cmd
+
+    if(sbout_cmd = CACHE_DCMD_WRITESGL_FA) then
+      if(this.statemcl = IDLE) and
+        (sbout_en1 = '1') then
+        case this.statemwi is
+        when GAP1 | GAP2S | GAP2R =>    mtoc.b0enr  <= '0';
+        when others =>                  mtoc.b0enr  <= '1';
+        end case;
+      elsif(this.statemwi = GAP3R) then mtoc.b0enr  <= '1';
+      else                              mtoc.b0enr  <= '0';
+      end if;
+    else                                mtoc.b0enr  <= this.rfillv ;
+    end if;
+
+    if((                         this.ma0(4 downto 2) = b"111") and
+                                          (this.reqw  = b"000")) or
+      (std_logic_vector(unsigned(this.ma0(4 downto 2)) + 1) = this.reqw) then
+      -- caution left 4 bit right 3 bit case
+         cw_last := '1';
+    else cw_last := '0';
+    end if;
+
+    -- ma_ack_g
+    -- initial value start
+                                                 ma_ack_g :=  ma.ack;
+    -- initial value end                         |
+    case this.statemcl is
+    when WSG | WTHI | WTHA =>
+      case this.statemwi is
+      when GAP2S | GAP2R | GAP3S | GAP3R  =>     ma_ack_g := '0'; -- mask
+      when others =>   end case;
+    when others =>
+    end case;
+
+    -- next state (statemcl : state mem clock main state)
+    case this.statemcl is
+    when IDLE =>
+      if(sbout_en1 = '1') then
+        case sbout_cmd is
+        when CACHE_DCMD_READMISS =>     nx.statemcl := RFILL;
+        when CACHE_DCMD_WRITEMISS =>    nx.statemcl := WFILL;
+        when CACHE_DCMD_READSGL_NM |
+             CACHE_DCMD_READSGL_LO =>   nx.statemcl := RSG;
+        when CACHE_DCMD_WRITESGL_SL =>  nx.statemcl := WSG;
+        when CACHE_DCMD_NEGATE_LO =>    nx.statemcl := IDLE;
+        when others => -- (CACHE_DCMD_WRITESGL_FA)
+                                        nx.statemcl := WTHI;
+        end case;
+      else                              nx.statemcl := IDLE; end if;
+    when RFILL =>
+      if(this.men = '1') and (ma.ack = '1') and
+         (cw_last = '1') then           nx.statemcl := IDLE; 
+      else                              nx.statemcl := RFILL; end if;
+    when WFILL =>
+      if(this.men = '1') and (ma.ack = '1') and
+         (cw_last = '1') then           nx.statemcl := WTHA;
+      else                              nx.statemcl := WFILL; end if;
+    when WTHA | WTHI | RSG | WSG =>
+      if(ma_ack_g = '1') then           nx.statemcl := IDLE;
+      else                              nx.statemcl := this.statemcl; end if;
+    when others =>                      nx.statemcl := IDLE;
+    end case;
+
+    -- next state (statemwi : state mem write - write idle internal)
+    case this.statemwi is
+    when IDLE =>
+      case this.statemcl is
+      when WTHA | WTHI | WSG =>
+        if(ma_ack_g = '1') then         nx.statemwi := GAP1;
+        else                            nx.statemwi := IDLE; end if;
+      when others =>                    nx.statemwi := IDLE; end case;
+    when GAP1 =>
+      if   (sbout_en1  = '0') then      nx.statemwi := GAP2S;
+      elsif(sbout_en1w = '0') then      nx.statemwi := IDLE;
+      else                              nx.statemwi := GAP2R; end if;
+    when GAP2R =>                       nx.statemwi := GAP3R;
+    when GAP2S =>
+      if   (sbout_en1  = '0') then      nx.statemwi := GAP3S;
+      elsif(sbout_en1w = '0') then      nx.statemwi := IDLE;
+      else                              nx.statemwi := GAP3R; end if;
+    when others =>                      nx.statemwi := IDLE;
+      -- others = GAP3S or GAP3R
+    end case;
+
+    if(sbout_en1 = '1') then nx.reqw := sbout.a(4 downto 2);
+    else                     nx.reqw := this.reqw; end if;
+
+    case nx.statemcl is
+    when IDLE =>                          nx.men := '0';
+    when others =>
+      if(nx.statemwi = GAP2R) or
+        (nx.statemwi = GAP3R) then        nx.men := '0';
+      else                                nx.men := '1'; end if;
+    end case;
+
+    if((nx.men = '1') and
+       ((sbout_cmd = CACHE_DCMD_WRITESGL_FA) or
+        (sbout_cmd = CACHE_DCMD_WRITESGL_SL))) or
+      (nx.statemcl = WTHA)  then nx.mwr := '1';
+    else                         nx.mwr := '0'; end if;
+
+    if(nx.men = '1') then
+      if(sbout_cmd = CACHE_DCMD_READSGL_LO) then
+                                 nx.mlock := '1';
+      else                       nx.mlock := '0'; end if;
+    elsif(sbout_en1 = '1') and 
+         (sbout_cmd = CACHE_DCMD_NEGATE_LO) then
+                                 nx.mlock := '0';
+    else                         nx.mlock := this.mlock; end if;
+
+    if(this.statemcl = IDLE) and
+      ((nx.statemcl = RFILL) or (nx.statemcl = WFILL)) then
+                                 nx.ddrburst := '1';
+    elsif(ma.ack = '1') then     nx.ddrburst := '0'; 
+    else                         nx.ddrburst := this.ddrburst; end if;
+
+    if(this.statemcl = RSG) and (nx.statemcl = IDLE) then
+                                           nx.rfillv_pre1 := '1';
+    else                                   nx.rfillv_pre1 := '0'; end if;
+
+    case this.statemcl is
+    when RFILL | WTHA | WSG =>
+      if(ma_ack_g = '1') then   -- critical input (delay)
+        if ((this.statemcl /= RFILL) or
+            ((this.men = '1') and (cw_last = '1'))) then
+                                         nx.rfillv := '1';
+        else                             nx.rfillv := '0'; end if;
+      else                               nx.rfillv := '0'; end if;
+    when others => 
+      if(sbout_en1 = '1') and
+        (sbout_cmd = CACHE_DCMD_NEGATE_LO) then
+                                         nx.rfillv := '1';
+      else                               nx.rfillv := this.rfillv_pre1; end if;
+    end case;
+
+    if(this.statemcl = IDLE) and
+      (sbout_cmd = CACHE_DCMD_WRITESGL_FA) and
+      (sbout_en1 = '1') then mtoc.b0enr_mcdata  <= '1';
+    else                     mtoc.b0enr_mcdata  <= nx.rfillv ; end if;
+
+    -- b3 en return pulse (one shot with every write)
+    if(this.mwr = '1') and
+      (ma_ack_g = '1') then         nx.b3enr_dir := not this.b3enr_dir;
+                                    nx.b3enr_pls := '1';
+    else                            nx.b3enr_dir :=     this.b3enr_dir;
+                                    nx.b3enr_pls := '0'; end if;
+
+    if((this.statemcl = IDLE) and (nx.statemcl /= IDLE)) or
+      ((this.statemcl = WFILL) and (nx.statemcl = WTHA)) then
+                                                nx.mav := '1';
+    elsif(ma_ack_g = '1') then                  nx.mav := '0';
+    else                                        nx.mav := this.mav; end if;
+
+    case sbout_cmd is
+    when CACHE_DCMD_READMISS  =>                nx.ry_we1 := x"f";
+    when CACHE_DCMD_WRITEMISS =>
+      if(nx.mav = '1') then                     nx.ry_we1 := not(sbout.we);
+      else                                      nx.ry_we1 := x"f"; end if; 
+    when others =>                              nx.ry_we1 := x"0";
+    end case;
+
+    -- -- nx.ma0 --------------------------------------------------------------
+                                 nx.ma0 := this.ma0; -- initial value ---------
+    -- main cases (no description goes initial value) -------------------------
+    case this.statemcl is
+    when IDLE =>
+      if(nx.statemcl /= IDLE) then
+                                 nx.ma0 := sbout.a; end if;
+      if(nx.statemcl = RFILL) or (nx.statemcl = WFILL) then -- overwrite 2-bits
+                                 nx.ma0(1 downto 0) := b"00"; end if;
+      -- ^ caution
+      -- |   2 dependent if( )
+    when RFILL | WFILL =>
+      if(nx.statemcl = WTHA) then
+                                 nx.ma0 := sbout.a;
+      elsif(ma.ack = '1') then   nx.ma0 := this.ma0(27 downto 5)       & 
+                 std_logic_vector(unsigned(this.ma0( 4 downto 2)) + 1) & b"00";
+      end if;
+    when others => -- keep
+    end case;
+
+    -- next sbwe 
+    -- initial value -----------------------------------
+                                              nx.sbwe := this.sbwe;
+    -- next sbwe lodic body
+    case this.statemcl is
+    when IDLE =>
+      if(nx.statemcl = WTHI) or (nx.statemcl = WSG) then
+                                              nx.sbwe := sbout.we;
+      else                                    nx.sbwe := x"0"; end if;
+    when WTHI | WTHA | WSG =>
+                 if(ma_ack_g = '1') then      nx.sbwe := x"0"; end if;
+    when WFILL =>
+                 if(nx.statemcl = WTHA) then  nx.sbwe := sbout.we; end if;
+    when others => -- keep (initial value)
+    end case;
+
+    -- sb buffer element in yes or not
+    if(sbout_en1 = '1') and
+      ((sbout_cmd = CACHE_DCMD_WRITESGL_FA) or
+       (sbout_cmd = CACHE_DCMD_WRITESGL_SL)) and
+      (ma_ack_g = '0') then      nx.sbbufin := '1'; -- insert
+    elsif (ma_ack_g = '1') then  nx.sbbufin := '0'; -- delete
+    else                         nx.sbbufin := this.sbbufin;
+    end if;
+    if(this.sbwe = b"0101") then -- never happen, combinational analysis
+                                  -- can not judge happen or not
+         nx.sbbufin_2 := '0';
+    else nx.sbbufin_2 := nx.sbbufin;
+    end if;
+
+    if(sbout_en1 = '1') and
+      ((sbout_cmd = CACHE_DCMD_WRITESGL_FA) or
+       (sbout_cmd = CACHE_DCMD_WRITESGL_SL)) then
+                               nx.sbdata := sbout.d;
+    else                       nx.sbdata := this.sbdata; end if;
+
+    if(this.men = '1') and (ma.ack = '1') then
+         nx.b0d_unc := ma.d;
+    else nx.b0d_unc := this.b0d_unc; end if;
+        -- caution this.b0d_unc must valid two cycles.
+        -- in uncache bus read, (this.men = '1') and (ma.ack = '1') does not
+        -- happen two consecutive cycles.
+
+    if(this.men = '1') and (ma.ack_r = '1') and 
+      ((this.statemcl = RFILL) or (this.statemcl = WFILL)) and
+      (this.ma0(4 downto 2) = this.reqw) then
+         nx.cd := ma.d;
+         nx.b2en := '1';
+    else nx.cd := this.cd;
+         nx.b2en := '0'; end if;
+
+
+  -- ff substitution
+    -- non nx type (this-this)
+    this.rfillv_del1  := this.rfillv;
+    this.ry_a1fillc   := this.ma0(4 downto 2);
+    this.ry_en1       := this.men and ma.ack_r;
+    -- non nx type (general signal)
+    this.fillv_del1   := (not sbout.en);
+    this.b0d_unc      := nx.b0d_unc;
+    this.cmd          := sbout_cmd;
+    this.b30en        := ctom.b30en;
+    -- nx type
+    this.statemcl     := nx.statemcl;
+    this.statemwi     := nx.statemwi;
+    this.ma0          := nx.ma0;
+    this.reqw         := nx.reqw;
+    this.men          := nx.men;
+    this.mav          := nx.mav;
+    this.mwr          := nx.mwr;
+    this.mlock        := nx.mlock;
+    this.ddrburst     := nx.ddrburst;
+    this.sbwe         := nx.sbwe;
+    this.sbdata       := nx.sbdata;
+    this.sbbufin      := nx.sbbufin;
+    this.sbbufin_2    := nx.sbbufin_2; -- sbbufin_2 to improve fpga delay
+    this.sbblknxst     := nx.sbblknxst;
+    this.ry_we1       := nx.ry_we1;
+    this.rfillv_pre1  := nx.rfillv_pre1;
+    this.rfillv       := nx.rfillv;
+    this.b3enr_dir    := nx.b3enr_dir;
+    this.b3enr_pls    := nx.b3enr_pls;
+    this.cd           := nx.cd;
+    this.b2en         := nx.b2en;
+  end process;
+
+  -- --------------------------------------------------------------------------
+  -- internal signals (observation)
+  -- --------------------------------------------------------------------------
+  ctom_cmd <= ctom.b0d(64 downto 62);
+
+  -- --------------------------------------------------------------------------
+  -- output signals
+  -- --------------------------------------------------------------------------
+
+  -- output signal (cache ram port)
+  ry_mcl.a1  <= this'register.ma0(CACHE_LINE_WIDTH_BITS+CACHE_INDEX_BITS-1 
+                downto 2);
+  ry_mcl.en1 <= this'register.men and (not this'register.mwr) and ma.ack_r;
+  ry_mcl.wr1 <= this'register.men and (not this'register.mwr) and ma.ack_r;
+  ry_mcl.we1 <= this'register.ry_we1 and 
+                ( ma.ack_r & ma.ack_r & ma.ack_r & ma.ack_r );
+  ry_mcl.d1  <= ma.d;
+
+  my.lock     <= this'register.mlock;
+  my.ddrburst <= this'register.ddrburst;
+  my.a        <= this'register.ma0;
+  my.av       <= this'register.mav;
+  my.en       <= this'register.men;
+  my.wr       <= this'register.mwr;
+  my.we       <= this'register.sbwe;
+
+  -- output signal (mem-clock domain -> cpu-clock domain, 
+  --                domain crossing)
+  mtoc.b0d_unc  <= this'register.b0d_unc;
+  mtoc.b2d_cfil <= this'register.cd;
+  mtoc.b2enr    <= this'register.b2en;
+  -- delay critical (ma.ack dependent output)
+  mtoc.b30enr   <=      this'combinatorial.b3enr_pls and
+                   (not this'combinatorial.b3enr_dir);
+  mtoc.b31enr   <=      this'combinatorial.b3enr_pls and
+                        this'combinatorial.b3enr_dir ;
+
+end beh;

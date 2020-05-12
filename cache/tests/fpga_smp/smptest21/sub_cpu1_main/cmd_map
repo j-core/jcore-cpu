@@ -1,0 +1,3 @@
+#! /bin/csh -f
+
+sh2-uclinux-gcc cpu1.o -Wl,-elf2flt,-M -o cpu1

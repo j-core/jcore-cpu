@@ -1,0 +1,143 @@
+library ieee;
+use ieee.std_logic_1164.all;
+use ieee.numeric_std.all;
+use work.cpu2j0_pack.all;
+use work.data_bus_pack.all;
+use work.ddrc_cnt_pack.all;
+use work.attr_pack.all;
+
+use work.cache_pack.all;
+
+entity icache_modereg is
+  port (
+   rst : in std_logic;
+   clk : in std_logic;
+   -- cpu target port
+   db_i : in cpu_data_o_t;
+   -- cpu target port
+   db_o : out cpu_data_i_t;
+   -- cpu0/cpu1 instruction address (for debug)
+   cpu0_ddr_ibus_o : in cpu_instruction_o_t;
+   cpu1_ddr_ibus_o : in cpu_instruction_o_t;
+   -- end of cpu0/cpu1 instruction address (for debug)
+   cache0_ctrl_ic : out cache_ctrl_t;
+   cache1_ctrl_ic : out cache_ctrl_t;
+   cache0_ctrl_dc : out cache_ctrl_t;
+   cache1_ctrl_dc : out cache_ctrl_t;
+   ddr_status : in ddr_status_o_t ; -- caution clk_mem region signals
+   int0 : out std_logic;
+   int1 : out std_logic;
+   cache01sel_ctrl_temp : out std_logic);
+  attribute soc_port_global_name of cache0_ctrl_ic : signal is "icache0_ctrl";
+  attribute soc_port_global_name of cache1_ctrl_ic : signal is "icache1_ctrl";
+  attribute soc_port_global_name of cache0_ctrl_dc : signal is "dcache0_ctrl";
+  attribute soc_port_global_name of cache1_ctrl_dc : signal is "dcache1_ctrl";
+  attribute soc_port_global_name of cache01sel_ctrl_temp : signal is "cache01sel_ctrl_temp";
+  attribute soc_port_global_name of cpu0_ddr_ibus_o : signal is "cpu0_ddr_ibus_o";
+  attribute soc_port_global_name of cpu1_ddr_ibus_o : signal is "cpu1_ddr_ibus_o";
+  attribute soc_port_global_name of ddr_status : signal is "ddr_status";
+end icache_modereg;
+
+architecture arch of icache_modereg is
+
+  register variable this : cache_modereg_reg_t reset := CACHEMODEREG_REG_RESET;
+
+begin
+
+  this : process(this, db_i, cpu0_ddr_ibus_o, cpu1_ddr_ibus_o, ddr_status)
+     register this when clk = '1' and clk'event reset when rst = '1';
+  begin
+    -- reg read
+    case db_i.a(5 downto 2) is
+    when x"0" => -- inv inv en en of cache-0 ----------------------------------
+      db_o.d(31 downto 2)  <= b"1000" & x"000000" & b"00";
+      db_o.d( 1)           <= this.dc0_en;
+      db_o.d( 0)           <= this.ic0_en;
+    when x"1" => -- inv inv en en of cache-1 ----------------------------------
+      db_o.d(31 downto 2)  <= b"1000" & x"000000" & b"00";
+      db_o.d( 1)           <= this.dc1_en;
+      db_o.d( 0)           <= this.ic1_en;
+    -- temporal instr fetch address watch path start --------------------------
+    when x"c" => 
+      db_o.d               <= cpu0_ddr_ibus_o.a & '0';
+    when x"d" => 
+      db_o.d               <= cpu1_ddr_ibus_o.a & '0';
+    when x"e" => 
+      db_o.d               <=   x"0000" & this.ddr_status_stable.status0 
+                              & x"00"; -- | 
+                              --          +-> locate 15 - 8
+    -- temporal instr fetch address watch path end ----------------------------
+    -- temporal this.cache01sel_ctrl_temp start -------------------------------
+    when x"f" => 
+      db_o.d(31 downto 1)  <= (others => '0');
+      db_o.d( 0)           <= this.cache01sel_ctrl_temp;
+    -- temporal this.cache01sel_ctrl_temp end ---------------------------------
+    when others => 
+      db_o.d               <= (others => '0');
+    end case;
+
+    -- reg write
+    -- initial value
+                                           this.ic0_inv := '0';
+                                           this.dc0_inv := '0';
+                                           this.ic1_inv := '0';
+                                           this.dc1_inv := '0';
+                                           this.int0    := '0';
+                                           this.int1    := '0';
+    if (db_i.en = '1') and (db_i.wr = '1') then
+      case db_i.a(5 downto 2) is
+      when x"0" =>
+         -- adrs is planned "0x......c0"
+        this.ic0_en := db_i.d(0);
+        this.dc0_en := db_i.d(1);
+        if(db_i.d(8) = '1') then           this.ic0_inv := '1'; end if;
+        if(db_i.d(9) = '1') then           this.dc0_inv := '1'; end if;
+        if(db_i.d(28) = '1') then          this.int0    := '1'; end if;
+      when x"1" =>
+         -- adrs is planned "0x......c4"
+        this.ic1_en := db_i.d(0);
+        this.dc1_en := db_i.d(1);
+        if(db_i.d(8) = '1') then           this.ic1_inv := '1'; end if;
+        if(db_i.d(9) = '1') then           this.dc1_inv := '1'; end if;
+        if(db_i.d(28) = '1') then          this.int1    := '1'; end if;
+    -- temporal this.cache01sel_ctrl_temp start ------------------
+      when x"f" =>
+        this.cache01sel_ctrl_temp := db_i.d(0);
+    -- temporal this.cache01sel_ctrl_temp end --------------------
+      when others =>
+      end case;
+    end if;
+    -- normal logic area end
+
+    -- clk_mem -> clk_sys 2 stage ff (group signal skew is not considered) 
+    this.ddr_status_stable := this.ddr_status_metas;
+    this.ddr_status_metas  :=      ddr_status;
+
+  end process;
+
+--  db_o.d(31 downto 10) <= (others => '0');
+--  db_o.d( 9)           <= '0'; -- read zero, regardless to write value
+--  db_o.d( 8)           <= '0'; -- read zero, regardless to write value
+--  db_o.d( 7 downto  2) <= (others => '0');
+  --------
+  -- memo : db_o.d(1), db_o.d(0) are set within process( )
+
+  -- -- ack ---------------------
+  db_o.ack             <= db_i.en;
+
+  cache0_ctrl_ic.en  <= this'register.ic0_en;
+  cache0_ctrl_ic.inv <= this'register.ic0_inv;
+  -- do the same to icache1
+  -- TODO: Control independently?
+  cache1_ctrl_ic.en  <= this'register.ic1_en;
+  cache1_ctrl_ic.inv <= this'register.ic1_inv;
+  cache0_ctrl_dc.en  <= this'register.dc0_en;
+  cache0_ctrl_dc.inv <= this'register.dc0_inv;
+  cache1_ctrl_dc.en  <= this'register.dc1_en;
+  cache1_ctrl_dc.inv <= this'register.dc1_inv;
+  int0               <= this'register.int0;
+  int1               <= this'register.int1;
+
+  cache01sel_ctrl_temp  <= this'register.cache01sel_ctrl_temp; -- temporal
+
+end arch;

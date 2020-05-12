@@ -32,6 +32,7 @@ package datapath_pack is
       instr       : in  instr_ctrl_t;
       pc_ctrl     : in  pc_ctrl_t;
       buses       : in  buses_ctrl_t;
+      coproc      : in coproc_ctrl_t;
       db_lock     : out std_logic;
       db_o        : out cpu_data_o_t;
       db_i        : in  cpu_data_i_t;
@@ -50,6 +51,9 @@ package datapath_pack is
       if_stall    : out std_logic;
       mask_int    : out std_logic;
       illegal_delay_slot : out std_logic;
-      illegal_instr : out std_logic);
+      illegal_instr : out std_logic;
+      copreg      : in std_logic_vector(7 downto 0);
+      cop_i       : in cop_i_t;
+      cop_o       : out cop_o_t);
    end component datapath;
 end package;

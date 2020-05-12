@@ -1,0 +1,26 @@
+#! /bin/csh -f
+
+# run i-cache simulation
+echo '-----------------------------------------------'
+echo '(1) run i-cache simulation (it will take 20 sec)'
+echo '(2) run d-cache simulation (it will take 320 sec)'
+echo ''
+echo 'first, run i-cache simulation'
+echo '-----------------------------------------------'
+make clean
+sleep 1
+/bin/rm icache_tb.ghw >& /dev/null
+./tests/ictest000/cmd_go_IC 
+
+sleep 5
+
+# run d-cache simulation
+echo '-----------------------------------------------'
+echo 'run d-cache simulation (it will take 320 sec)'
+echo '-----------------------------------------------'
+make clean
+sleep 1
+/bin/rm dcache_tb.ghw >& /dev/null
+./cmd_go_dhry
+
+

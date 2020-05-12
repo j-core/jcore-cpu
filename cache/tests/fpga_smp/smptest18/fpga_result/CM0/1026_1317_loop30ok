@@ -1,0 +1,30 @@
+# readmem abcd00c0 3
+Printing 3 words starting at 0xabcd00c0
+abcd00c0: 80000000 80000000 00000000
+# test18 < random2.num
+smp test test18 (snoop by random number)
+14000004 10MB area kept
+input loop count (decimal)
+  memo: 1 loop <=> 2560(dec)load and 640(dec)(store)
+end set CPU1 instructions
+parameters test_array 169c939c pattern_mem 169cbb9c
+end setup CPU1 boot
+in-loop 20e637
+array 0 1d714 283c e08c 4 
+in-loop 676022
+array 16628 197e1 1c517 128b9 84da 
+RESULT
+sumdma  11f80000
+sumcpu  a23b04e
+  array 0 2e07 197e1 a06b 128b9
+  array 1 9986 f984 1262e 8e7a
+  array 2 7291 ab28 73f2 1eaae
+  array 3 3111 2a43 83b3 13d0d
+  array 4 1dd3c 165a 18bea 126db
+  array 5 1d40b 12f6a 1b159 129b1
+  array 6 b15c 7f8d 1d6cf 14dfd
+  array 7 122bc 1d719 14e56 970
+  array 8 cfd0 15017 2d6 a033
+cpu0 poll count1 (for complete dma) = 0
+cpu0 poll count2 (for complete cpu) = 0
+time = (process) 48.69 sec, (real-time) 49.12 sec

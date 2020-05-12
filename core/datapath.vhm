@@ -21,6 +21,7 @@ entity datapath is
 		     instr : in instr_ctrl_t;
 		     pc_ctrl : in pc_ctrl_t;
 		     buses : in buses_ctrl_t;
+		     coproc : in coproc_ctrl_t;
 		     db_lock : out std_logic;
 		     db_o : out cpu_data_o_t;
 		     db_i : in cpu_data_i_t;
@@ -39,7 +40,10 @@ entity datapath is
 		     if_stall : out std_logic;
 		     mask_int : out std_logic;
 		     illegal_delay_slot : out std_logic;
-		     illegal_instr : out std_logic
+		     illegal_instr : out std_logic;
+		     copreg : in std_logic_vector(7 downto 0);
+		     cop_i : in cop_i_t;
+		     cop_o : out cop_o_t
 	     );
 end entity datapath;
 
@@ -83,7 +87,8 @@ architecture stru of datapath is
 	return r;
 	end to_slv;
 
-        function to_data_o(mem : mem_ctrl_t; addr : std_logic_vector(31 downto 0);
+        function to_data_o(mem : mem_ctrl_t; coproc : coproc_ctrl_t;
+                           addr : std_logic_vector(31 downto 0);
                            data : std_logic_vector(31 downto 0))
         return cpu_data_o_t is
           variable r : cpu_data_o_t := NULL_DATA_O;
@@ -113,6 +118,8 @@ architecture stru of datapath is
                   r.d := data(7 downto 0) & data(7 downto 0) & data(7 downto 0) & data(7 downto 0);
               end case;
             end if;
+          elsif coproc.coproc_cmd = LDS then
+                  r.d := data;
           end if;
           return r;
         end to_data_o;
@@ -203,7 +210,7 @@ begin
 
 	ibit <= sr.int_mask;
 
-	datapath : process(this,pc_ctrl,wbus,zbus,sr_ctrl, xbus, ybus, mac,mem, instr, db_i, inst_i, debug, debug_i,reg_wr_data_o, logic_out, arith_out, arith_func, func, sfto)
+	datapath : process(this,pc_ctrl,wbus,zbus,sr_ctrl, xbus, ybus, mac,mem, instr, db_i, inst_i, debug, debug_i,reg_wr_data_o, logic_out, arith_out, arith_func, func, sfto, coproc, cop_i)
 	  register this when clk='1' and clk'event reset when rst='1';
           variable if_ad : std_logic_vector(31 downto 0);
           variable ma_ad, ma_dw : std_logic_vector(31 downto 0);
@@ -287,6 +294,8 @@ begin
             if this.m_en = '1' then
               this.m_dr := this.m_dr_next;
               this.m_en := '0';
+            elsif coproc.cpu_data_mux /= DBUS then
+              this.m_dr := cop_i.d;
             end if;
             if this.if_en = '1' then
               this.if_dr := this.if_dr_next;
@@ -304,7 +313,8 @@ begin
 
           if this.slot = '1' then
             -- start new memory transactions
-            if mem.issue = '1' and this.data_o.en = '0' then
+            if (mem.issue = '1' and this.data_o.en = '0') or
+               (coproc.coproc_cmd = LDS) then
               -- start new data request
               case mem.addr_sel is
                 when SEL_XBUS => ma_ad := xbus;
@@ -316,7 +326,7 @@ begin
                 when SEL_ZBUS => ma_dw := zbus;
               end case;
               this.data_o_size := mem.size;
-              this.data_o := to_data_o(mem, ma_ad, ma_dw);
+              this.data_o := to_data_o(mem, coproc, ma_ad, ma_dw);
             end if;
             if instr.issue = '1' then
               if this.debug_state = RUN or this.debug_state = AWAIT_BREAK then
@@ -436,6 +446,16 @@ begin
         if_dr <= this'register.if_dr;
         illegal_delay_slot <= this'register.illegal_delay_slot;
         illegal_instr <= this'register.illegal_instr;
+        cop_o.rna <= copreg(7 downto 4);
+        cop_o.rnb <= copreg(3 downto 0);
+        cop_o.op <= "11101" when coproc.coproc_cmd = LDS  else
+                    "11111" when coproc.coproc_cmd = STS  else
+                    "10001" when coproc.coproc_cmd = CLDS else
+                    "10000" when coproc.coproc_cmd = CSTS else
+                    "00000";
+        cop_o.en <= '0' when coproc.coproc_cmd = NOP else '1';
+        cop_o.stallcp <= not slot_o;
+        cop_o.d <= this'register.data_o.d;
 
         wbus <= this'register.m_dr;
         slot_o <= this'combinatorial.slot;

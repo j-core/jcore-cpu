@@ -6,7 +6,10 @@ use work.cpu2j0_components_pack.all;
 use work.datapath_pack.all;
 use work.mult_pkg.all;
 
-entity cpu is port ( 
+entity cpu is
+ generic ( 
+   COPRO_DECODE : boolean := true);
+ port ( 
    clk          : in  std_logic;
    rst          : in  std_logic;
    db_o         : out cpu_data_o_t;
@@ -17,7 +20,9 @@ entity cpu is port (
    debug_o      : out cpu_debug_o_t;
    debug_i      : in  cpu_debug_i_t;
    event_o      : out cpu_event_o_t;
-   event_i      : in  cpu_event_i_t);
+   event_i      : in  cpu_event_i_t;
+   cop_o        : out cop_o_t;
+   cop_i        : in  cop_i_t);
 end entity cpu;
 
 architecture stru of cpu is 
@@ -40,6 +45,9 @@ architecture stru of cpu is
    signal sr : sr_ctrl_t;
    signal illegal_delay_slot : std_logic;
    signal illegal_instr : std_logic;
+   signal coproc : coproc_ctrl_t;
+   signal coproc_decode : coproc_ctrl_t;
+   signal copreg : std_logic_vector(7 downto 0);
 begin
 
    event_o.ack  <= event_ack;
@@ -56,6 +64,7 @@ begin
       mac_busy => mac_o.busy,
       reg => reg, func => func, sr => sr, mac => mac, mem => mem, instr => instr, pc => pc,
       buses => buses,
+      coproc => coproc_decode, copreg => copreg,
       t_bcc => t_bcc,
       event_i => event_i, event_ack => event_ack,
       ibit => ibit,
@@ -70,11 +79,18 @@ begin
       db_lock => db_lock, db_o => db_o, db_i => db_i, inst_o => inst_o, inst_i => inst_i,
       debug_o => debug_o, debug_i => debug_i,
       reg => reg, func => func, sr_ctrl => sr, mac => mac, mem => mem, pc_ctrl => pc,
-      buses => buses, instr => instr,
+      buses => buses, coproc => coproc, instr => instr,
       macin1 => mac_i.in1, macin2 => mac_i.in2, mach => mac_o.mach, macl => mac_o.macl,
       mac_s => mac_i.s,
       t_bcc => t_bcc, ibit => ibit, if_dr => if_dr, if_stall => if_stall,
       mask_int => mask_int,
       illegal_delay_slot => illegal_delay_slot,
-      illegal_instr => illegal_instr);
+      illegal_instr => illegal_instr,
+      copreg => copreg,
+      cop_i => cop_i, cop_o => cop_o);
+
+  coproc.cpu_data_mux <= coproc_decode.cpu_data_mux when COPRO_DECODE
+                         else DBUS;
+  coproc.coproc_cmd <= coproc_decode.coproc_cmd when COPRO_DECODE
+                         else NOP;
 end architecture stru;

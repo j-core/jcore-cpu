@@ -470,7 +470,9 @@
                      :funclogic-sr :logic-sr-func
                      :srsel :sr-sel
                      :srt :t-sel
-                     :srilevel :ilevel])))
+                     :srilevel :ilevel
+                     :coproccoproc-cmd :coproc-cmd
+                     :coproccpu-data-mux :cpu-data-mux])))
         internal-signal-overrides
         {:debug (:debug-o internal-signals)}
         [pipeline-inputs
@@ -496,6 +498,15 @@
                              (vhdl-name s))]))]))
          [{} {}]
          pipelines)
+
+        ;; override certain outputs to non-standard pipeline outputs
+        pipeline-outputs
+        (assoc pipeline-outputs
+               :cpu-data-mux
+               (rec-elem (rec-elem (:pipeline-r internal-signals) "wb2_stall") "cpu_data_mux"))
+
+        cpu-data-mux-wb1-stall
+        (rec-elem (rec-elem (:pipeline-r internal-signals) "wb1_stall") "cpu_data_mux")
 
         instr-code (RecordElement. (:op table-inputs) "code")
         instr-plane (RecordElement. (:op table-inputs) "plane")
@@ -1054,7 +1065,7 @@
                               [(set-comments
                                 (for [k (concat wb-ex-keys single-ex-stall-keys single-wb-stall-keys)
                                       :let [sig (decode-outputs k)]
-                                      :when (and sig (not (core-outputs k)) (not= :sr-sel k))]
+                                      :when (and sig (not (core-outputs k)) (not (#{:sr-sel :coproc-cmd} k)))]
                                   (cond-assign sig (pipeline-outputs k)))
                                 "assign outputs")
                                (set-comments
@@ -1090,7 +1101,15 @@
                                                (get-in enum-maps [:sr-sel :wbus])
                                                (v= (pipeline-outputs :wrsr-w)
                                                    StdLogic1164/STD_LOGIC_1)
-                                               (pipeline-outputs :sr-sel))])]))))
+                                               (pipeline-outputs :sr-sel))
+                                  (cond-assign (decode-outputs :coproc-cmd)
+                                               (get-in enum-maps [:coproc-cmd :csts])
+                                               (v-and
+                                                (v= (pipeline-outputs :coproc-cmd) (get-in enum-maps [:coproc-cmd :sts]))
+                                                (v= cpu-data-mux-wb1-stall (get-in enum-maps [:cpu-data-mux :dbus])))
+                                               (pipeline-outputs :coproc-cmd))
+                                  (cond-assign (decode-outputs :copreg) (slice-downto instr-code 11 4))
+                                  ])]))))
 
         logic-table
         (-> (Architecture. "simple_logic" table-entity)
@@ -1184,7 +1203,7 @@
                p-sig
                instr-code
                instr-addr)]
-          (-> (Architecture. "reverse_logic" table-entity)
+          (-> (Architecture. "direct_logic" table-entity)
               (add-declarations
                mac-busy-enum-sig
                (sort-by get-id
@@ -1337,7 +1356,7 @@
        :decode-simple
        (add-all (VhdlFile.) elements
                 (apply set-comments logic-table hdr-comment))
-       :decode-reverse
+       :decode-direct
        (add-all (VhdlFile.) elements
                 (apply set-comments compressed-table hdr-comment))
        :decode-rom

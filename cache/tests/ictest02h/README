@@ -1,0 +1,11 @@
+how to run icache sim
+
+make -f tests/ictest02h/Makefile icache_tb.ghw
+
+display example
+---------------------------------------------------
+verifying
+     210 test.acc access
+verify ok
+6.114u 0.227s 0:06.36 99.5%	0+0k 0+2io 0pf+0w
+---------------------------------------------------
