@@ -422,7 +422,7 @@ function bshifter(a,b : std_logic_vector; c : std_logic; ops : shiftfunc_t) retu
    begin
    -- Verify argument lengths match. The b argument is a sign bit plus
    -- N bits, and the a arg must be 2^N bits.
-   if integer(a'length) /= integer(2 ** (b'length - 1)) then
+   if integer(a'length) /= integer(integer(2) ** integer(b'length - 1)) then
      assert NO_WARNING
        report "BSHIFTER: Arg size mismatch, returning A"
        severity WARNING;
